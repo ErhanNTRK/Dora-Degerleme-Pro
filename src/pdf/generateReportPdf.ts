@@ -20,6 +20,15 @@ export function registerReportFonts(doc: jsPDF) {
   doc.setFont('Roboto', 'normal');
 }
 
+/**
+ * Data-URL ön ekinden jsPDF'in beklediği görsel formatını tespit eder.
+ * Kullanıcı Ayarlar'dan PNG logo/JPEG imza yüklediğinde sabit format nedeniyle
+ * görselin sessizce kaybolmasını önler (varsayılan: JPEG).
+ */
+export function detectImageFormat(dataUrl: string): 'PNG' | 'JPEG' {
+  return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+}
+
 interface GenerateOpts {
   title: string;
   input: CalculationInput;
@@ -48,7 +57,8 @@ export function buildReportPdfDoc({ title, input, result, tariffYear, company }:
   doc.setFillColor(...NAVY);
   doc.rect(0, 0, pageWidth, 32, 'F');
   try {
-    doc.addImage(company.logoDataUrl || LOGO_BASE64, 'JPEG', margin, 5, 22, 22);
+    const logoSrc = company.logoDataUrl || LOGO_BASE64;
+    doc.addImage(logoSrc, detectImageFormat(logoSrc), margin, 5, 22, 22);
   } catch {
     /* logo yüklenemezse sessizce devam */
   }

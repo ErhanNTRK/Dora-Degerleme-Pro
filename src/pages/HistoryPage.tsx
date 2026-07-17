@@ -49,11 +49,13 @@ export function HistoryPage() {
   );
 
   async function handleDeleteCalculation(id: string) {
+    if (!window.confirm('Bu hesaplama kaydı kalıcı olarak silinecek. Emin misiniz?')) return;
     await db.calculations.delete(id);
     load();
   }
 
   async function handleDeleteProposal(id: string) {
+    if (!window.confirm('Bu teklif kaydı kalıcı olarak silinecek. Emin misiniz?')) return;
     await db.proposals.delete(id);
     load();
   }
@@ -64,24 +66,29 @@ export function HistoryPage() {
   }
 
   async function getProposalPropertyDetailLines(item: SavedProposal) {
-    if (!item.calculationId) return [];
+    if (!item.calculationId || !item.result) return [];
     const calc = await db.calculations.get(item.calculationId);
     if (!calc) return [];
     return collectPropertyDetailLines(item.result.propertyBreakdowns, calc.input.properties);
   }
 
+  // KDV: çoklu tekliflerde vatRatePercent alanı, tekli eski kayıtlarda result snapshot'ı.
+  function proposalVatRate(item: SavedProposal): number {
+    return item.vatRatePercent ?? item.result?.vatRatePercent ?? 20;
+  }
+
   async function handleRegenerateProposalPdf(item: SavedProposal, mode: 'download' | 'share') {
-    const pricing = computeProposalPricing(item.offerAmount, item.result.vatRatePercent);
+    const pricing = computeProposalPricing(item.offerAmount, proposalVatRate(item));
     const propertyDetailLines = await getProposalPropertyDetailLines(item);
-    const { blob, fileName } = buildProposalPdfBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines });
+    const { blob, fileName } = buildProposalPdfBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
     if (mode === 'download') downloadBlob(blob, fileName);
     else await shareOrDownloadFile(blob, fileName, 'application/pdf');
   }
 
   async function handleRegenerateProposalDocx(item: SavedProposal, mode: 'download' | 'share') {
-    const pricing = computeProposalPricing(item.offerAmount, item.result.vatRatePercent);
+    const pricing = computeProposalPricing(item.offerAmount, proposalVatRate(item));
     const propertyDetailLines = await getProposalPropertyDetailLines(item);
-    const { blob, fileName } = await buildProposalDocxBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines });
+    const { blob, fileName } = await buildProposalDocxBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
     if (mode === 'download') downloadBlob(blob, fileName);
     else await shareOrDownloadFile(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }

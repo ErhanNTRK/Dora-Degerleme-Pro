@@ -31,9 +31,19 @@ export function TariffProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         // Ağ/dosya erişimi başarısızsa, daha önce tarayıcıda saklanmış son sürümü kullan
+        // Cache bozuksa (yarım yazılmış/elle değiştirilmiş) uygulamayı açılışta düşürmemek
+        // için parse güvenli yapılır; bozuk kayıt temizlenir ve hata durumuna düşülür.
+        let cachedTariff: Tariff | null = null;
         const cached = localStorage.getItem(TARIFF_CACHE_KEY);
-        if (cached && !cancelled) {
-          setTariff(JSON.parse(cached));
+        if (cached) {
+          try {
+            cachedTariff = JSON.parse(cached) as Tariff;
+          } catch {
+            localStorage.removeItem(TARIFF_CACHE_KEY);
+          }
+        }
+        if (cachedTariff && !cancelled) {
+          setTariff(cachedTariff);
         } else if (!cancelled) {
           setError('Tarife verisi yüklenemedi. Lütfen internet bağlantınızı kontrol edip uygulamayı yeniden açın.');
         }

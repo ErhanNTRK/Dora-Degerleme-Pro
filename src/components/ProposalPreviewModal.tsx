@@ -1,5 +1,5 @@
 import type { CompanyProfile, CustomerInfo } from '../types/profile';
-import type { ProposalPricing, PropertyDetailLine } from '../proposal/buildProposalContent';
+import type { ProposalPricing, PropertyDetailLine, ProposalContent } from '../proposal/buildProposalContent';
 import { formatTL } from '../utils/format';
 import { amountToTurkishWords } from '../utils/turkishNumberToWords';
 
@@ -8,12 +8,14 @@ interface Props {
   customer: CustomerInfo;
   propertyDetailLines: PropertyDetailLine[];
   pricing: ProposalPricing;
+  /** Belgeye basılacak nihai içerik (düzenlenmiş paragraflar ve hizmet satırları dahil). */
+  content: ProposalContent;
   onEdit: () => void;
   onConfirm: () => void;
   confirmLabel: string;
 }
 
-export function ProposalPreviewModal({ company, customer, propertyDetailLines, pricing, onEdit, onConfirm, confirmLabel }: Props) {
+export function ProposalPreviewModal({ company, customer, propertyDetailLines, pricing, content, onEdit, onConfirm, confirmLabel }: Props) {
   const customerLabel =
     customer.customerType === 'kurumsal'
       ? customer.companyName || customer.customerName || 'Belirtilmedi'
@@ -54,9 +56,37 @@ export function ProposalPreviewModal({ company, customer, propertyDetailLines, p
           )}
 
           <div className="card">
+            <div className="section-title">Teklif Metni</div>
+            <p className="field__hint" style={{ marginBottom: 8, fontWeight: 650 }}>{content.salutation}</p>
+            <p className="field__hint" style={{ whiteSpace: 'pre-wrap' }}>{content.paragraphs[0]}</p>
+            {content.serviceFeeItems.length > 0 && (
+              <div style={{ margin: '8px 0' }}>
+                <p className="field__hint" style={{ fontWeight: 650 }}>Hizmet ve Ücret Dökümü:</p>
+                {content.serviceFeeItems.map((it, i) => (
+                  <div key={i} className="result-row">
+                    <span className="result-row__label">{i + 1}. {it.label}</span>
+                    <span className="result-row__value">{formatTL(it.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {content.serviceLines.length > 0 && (
+              <div style={{ margin: '8px 0' }}>
+                <p className="field__hint" style={{ fontWeight: 650 }}>Hizmet Kapsamı:</p>
+                {content.serviceLines.map((l, i) => (
+                  <p key={i} className="field__hint">{i + 1}. {l}</p>
+                ))}
+              </div>
+            )}
+            {content.paragraphs.slice(1).map((para, i) => (
+              <p key={i} className="field__hint" style={{ whiteSpace: 'pre-wrap', marginTop: 6 }}>{para}</p>
+            ))}
+          </div>
+
+          <div className="card">
             <div className="section-title">Tutar</div>
             <div className="result-row">
-              <span className="result-row__label">Hizmet Bedeli</span>
+              <span className="result-row__label">Toplam Maliyet</span>
               <span className="result-row__value">{formatTL(pricing.offerAmount)}</span>
             </div>
             <div className="result-row">
@@ -64,7 +94,7 @@ export function ProposalPreviewModal({ company, customer, propertyDetailLines, p
               <span className="result-row__value">{formatTL(pricing.vatAmount)}</span>
             </div>
             <div className="result-row result-row--total">
-              <span className="result-row__label">Toplam Tutar</span>
+              <span className="result-row__label">Genel Toplam (KDV Dahil)</span>
               <span className="result-row__value">{formatTL(pricing.grandTotal)}</span>
             </div>
             <p className="field__hint" style={{ marginTop: 6 }}>{amountToTurkishWords(pricing.grandTotal)}</p>

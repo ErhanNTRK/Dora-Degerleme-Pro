@@ -4,6 +4,7 @@ import { HomePage } from './pages/HomePage';
 import { NewCalculationPage } from './pages/NewCalculationPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { MunicipalityFeesPage } from './pages/MunicipalityFeesPage';
+import { MultiProposalPage } from './pages/MultiProposalPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TariffProvider } from './context/TariffContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -22,6 +23,7 @@ function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/hesapla" element={<NewCalculationPage />} />
                   <Route path="/gecmis" element={<HistoryPage />} />
+                  <Route path="/coklu-teklif" element={<MultiProposalPage />} />
                   <Route path="/belediye-harclari" element={<MunicipalityFeesPage />} />
                   <Route path="/ayarlar" element={<SettingsPage />} />
                 </Route>

@@ -1,5 +1,6 @@
 import type { CompanyProfile, CustomerInfo } from '../types/profile';
-import { buildProposalContent, type ProposalPricing, type PropertyDetailLine } from './buildProposalContent';
+import { buildProposalContent, type ProposalPricing, type PropertyDetailLine, type ProposalContentOptions } from './buildProposalContent';
+import { formatTL } from '../utils/format';
 import { buildProposalFileName } from '../utils/proposalHelpers';
 
 function dataUrlToUint8Array(dataUrl: string): Uint8Array {
@@ -16,15 +17,16 @@ interface ProposalDocxOpts {
   tariffYear: number;
   pricing: ProposalPricing;
   propertyDetailLines?: PropertyDetailLine[];
+  contentOptions?: ProposalContentOptions;
 }
 
 /**
  * 'docx' kütüphanesi büyük olduğu için yalnızca Word oluşturma talep edildiğinde
  * dinamik olarak yüklenir (ilk açılış performansını korumak için).
  */
-export async function buildProposalDocxBlob({ customer, company, tariffYear, pricing, propertyDetailLines = [] }: ProposalDocxOpts): Promise<{ blob: Blob; fileName: string }> {
+export async function buildProposalDocxBlob({ customer, company, tariffYear, pricing, propertyDetailLines = [], contentOptions = {} }: ProposalDocxOpts): Promise<{ blob: Blob; fileName: string }> {
   const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, BorderStyle } = await import('docx');
-  const { salutation, paragraphs, proposalDate, amountInWords } = buildProposalContent(customer, company, tariffYear, pricing, propertyDetailLines);
+  const { salutation, paragraphs, serviceLines, serviceFeeItems, proposalDate, amountInWords } = buildProposalContent(customer, company, tariffYear, pricing, propertyDetailLines, contentOptions);
 
   const children: InstanceType<typeof Paragraph>[] = [];
 
@@ -81,25 +83,73 @@ export async function buildProposalDocxBlob({ customer, company, tariffYear, pri
 
   children.push(new Paragraph({ spacing: { after: 180 }, children: [new TextRun({ text: salutation, bold: true, size: 22, color: '0F2A47' })] }));
 
-  for (const para of paragraphs) {
+  const bodyParagraph = (text: string) =>
+    new Paragraph({
+      spacing: { after: 180, line: 300 },
+      alignment: AlignmentType.JUSTIFIED,
+      children: [new TextRun({ text, size: 21 })],
+    });
+
+  if (paragraphs[0]) children.push(bodyParagraph(paragraphs[0]));
+
+  // Hizmet ve Ücret Dökümü (çoklu teklif) — rapor başına müşteri tutarı
+  if (serviceFeeItems.length > 0) {
     children.push(
-      new Paragraph({
-        spacing: { after: 180, line: 300 },
-        alignment: AlignmentType.JUSTIFIED,
-        children: [new TextRun({ text: para, size: 21 })],
-      })
+      new Paragraph({ spacing: { before: 60, after: 80 }, children: [new TextRun({ text: 'HİZMET VE ÜCRET DÖKÜMÜ', bold: true, size: 21, color: '0F2A47' })] })
     );
+    serviceFeeItems.forEach((item, i) => {
+      children.push(
+        new Paragraph({
+          spacing: { after: 60 },
+          border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: 'E2E8F0' } },
+          tabStops: [{ type: 'right' as const, position: 9000 }],
+          children: [
+            new TextRun({ text: `${i + 1}.  ${item.label}`, size: 20 }),
+            new TextRun({ text: `\t${formatTL(item.amount)}`, bold: true, size: 20 }),
+          ],
+        })
+      );
+    });
+    children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: '' })] }));
   }
 
-  // ---------- Toplam tutar kutusu ----------
-  children.push(
+  // Hizmet Kapsamı (çoklu hizmet görünümü) — tutar içermez
+  if (serviceLines.length > 0) {
+    children.push(
+      new Paragraph({ spacing: { before: 60, after: 80 }, children: [new TextRun({ text: 'HİZMET KAPSAMI', bold: true, size: 21, color: '0F2A47' })] })
+    );
+    serviceLines.forEach((line, i) => {
+      children.push(
+        new Paragraph({
+          spacing: { after: 60 },
+          indent: { left: 240 },
+          children: [new TextRun({ text: `${i + 1}.  ${line}`, size: 20 })],
+        })
+      );
+    });
+    children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: '' })] }));
+  }
+
+  for (const para of paragraphs.slice(1)) {
+    children.push(bodyParagraph(para));
+  }
+
+  // ---------- Tutar bloğu: Toplam Maliyet / KDV / Genel Toplam ----------
+  const amountRow = (label: string, value: string, opts: { bold?: boolean; color?: string; size?: number; topBorder?: boolean } = {}) =>
     new Paragraph({
-      spacing: { before: 120, after: 40 },
+      spacing: { after: 40 },
+      border: opts.topBorder ? { top: { style: BorderStyle.SINGLE, size: 4, color: 'E0A03D' } } : undefined,
+      tabStops: [{ type: 'right' as const, position: 9000 }],
       children: [
-        new TextRun({ text: `TOPLAM TUTAR (KDV DAHİL): ${pricing.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL`, bold: true, size: 24, color: '0F2A47' }),
+        new TextRun({ text: label, bold: opts.bold ?? false, size: opts.size ?? 20, color: opts.color ?? '16232E' }),
+        new TextRun({ text: `\t${value}`, bold: opts.bold ?? false, size: opts.size ?? 20, color: opts.color ?? '16232E' }),
       ],
-    })
-  );
+    });
+
+  children.push(new Paragraph({ spacing: { before: 120, after: 60 }, children: [new TextRun({ text: '' })] }));
+  children.push(amountRow('Toplam Maliyet', formatTL(pricing.offerAmount)));
+  children.push(amountRow(`KDV (%${pricing.vatRatePercent})`, formatTL(pricing.vatAmount)));
+  children.push(amountRow('GENEL TOPLAM (KDV DAHİL)', formatTL(pricing.grandTotal), { bold: true, color: '0F2A47', size: 24, topBorder: true }));
   children.push(
     new Paragraph({
       spacing: { after: 240 },
@@ -123,6 +173,7 @@ export async function buildProposalDocxBlob({ customer, company, tariffYear, pri
     children.push(new Paragraph({ spacing: { after: 200 }, children: [new TextRun({ text: '' })] }));
   }
 
+  children.push(new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: 'Saygılarımızla,', size: 20, color: '56677A' })] }));
   children.push(new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: company.companyName, bold: true, size: 21, color: '0F2A47' })] }));
 
   if (company.signatureDataUrl) {

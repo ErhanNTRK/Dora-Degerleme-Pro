@@ -29,9 +29,18 @@ export function LocationProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify(data));
         }
       } catch {
+        // Bozuk cache'e karşı güvenli parse (TariffContext ile aynı gerekçe).
+        let cachedDb: LocationDatabase | null = null;
         const cached = localStorage.getItem(LOCATION_CACHE_KEY);
-        if (cached && !cancelled) {
-          setLocationDb(JSON.parse(cached));
+        if (cached) {
+          try {
+            cachedDb = JSON.parse(cached) as LocationDatabase;
+          } catch {
+            localStorage.removeItem(LOCATION_CACHE_KEY);
+          }
+        }
+        if (cachedDb && !cancelled) {
+          setLocationDb(cachedDb);
         } else if (!cancelled) {
           setError('İl/İlçe veritabanı yüklenemedi.');
         }

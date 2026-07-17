@@ -42,13 +42,26 @@ export interface SavedProposal {
   createdAt: string;
   title: string;
   calculationId?: string;
+  /** Çoklu teklif: birleştirilen hesaplama kayıtlarının kimlikleri (v3). */
+  calculationIds?: string[];
+  /** 'multi' → birden fazla hesaplamayı birleştiren teklif; yoksa tekli kabul edilir. */
+  kind?: 'single' | 'multi';
   customer: CustomerInfo;
   company: CompanyProfile;
-  result: CalculationResult;
+  /** Tekli tekliflerde hesaplama sonucu snapshot'ı; çoklu tekliflerde bulunmaz. */
+  result?: CalculationResult;
+  /** Çoklu teklifler için KDV oranı (teklilerde result.vatRatePercent kullanılır). */
+  vatRatePercent?: number;
   tariffYear: number;
   bodyText: string;
   offerAmount: number;
   offerGrandTotal: number;
+  /** Belgenin birebir yeniden üretilebilmesi için içerik seçenekleri snapshot'ı. */
+  contentOptions?: {
+    serviceLines?: string[];
+    serviceFeeItems?: Array<{ label: string; amount: number }>;
+    customParagraphs?: string[] | null;
+  };
 }
 
 class DoraDegerlemeDB extends Dexie {
@@ -71,6 +84,11 @@ class DoraDegerlemeDB extends Dexie {
       settings: 'id',
       companyProfile: 'id',
       proposals: 'id, createdAt, calculationId',
+    });
+    // v3 (2026-07-17): Çoklu teklif desteği — proposals.calculationIds (multiEntry indeks).
+    // Geriye dönük uyumludur: mevcut kayıtlar değişmez, yalnızca yeni indeks eklenir.
+    this.version(3).stores({
+      proposals: 'id, createdAt, calculationId, *calculationIds',
     });
   }
 }

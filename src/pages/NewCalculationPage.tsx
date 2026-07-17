@@ -33,6 +33,8 @@ import {
   computeAsgariHizmetBedeli,
   computeProposalPricing,
   buildProposalContent,
+  buildDefaultProposalParagraphs,
+  buildServiceLines,
   buildOfferOneLiner,
   collectPropertyDetailLines,
 } from '../proposal/buildProposalContent';
@@ -67,6 +69,16 @@ export function NewCalculationPage() {
   const [calcSettings, setCalcSettings] = useState<CalculationSettings | null>(null);
 
   const [offerAmount, setOfferAmount] = useState<number | null>(null);
+  // Teklif Bedeli, kullanıcı elle değiştirmediği sürece Toplam Maliyet'i izler
+  // (tapu sayısı ve taşınmaz özetindeki "otomatik ama elle geçersiz kılınabilir" deseni).
+  const [offerManual, setOfferManual] = useState(false);
+  // Teklif metni: null → otomatik kurumsal metin (tutar değişikliklerini izler);
+  // dizi → kullanıcı düzenlemesi (aynen basılır, tutar değişse bile ellenmez).
+  const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(null);
+  // Çoklu hizmet görünümü: taşınmazlar teklifte tutarsız hizmet satırları olarak listelensin mi?
+  const [showServiceLines, setShowServiceLines] = useState(false);
+  // Teklifte "Taşınmaz Bilgileri" bölümü (mahalle/ada/parsel) gösterilsin mi?
+  const [showPropertyDetails, setShowPropertyDetails] = useState(true);
   const [saved, setSaved] = useState(false);
   const [reportTitle, setReportTitle] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -94,9 +106,17 @@ export function NewCalculationPage() {
     ]);
   }
 
-  if (properties.length === 0 && tariff) {
-    addProperty();
-  }
+  // İlk taşınmaz, tarife yüklendiğinde bir kez eklenir. Render gövdesinde setState çağırmak
+  // React kurallarına aykırı olduğu için useEffect'e taşındı; fonksiyonel güncelleme içindeki
+  // koruma sayesinde StrictMode'un çift çalıştırmasında dahi tek taşınmaz eklenir (idempotent).
+  useEffect(() => {
+    if (!tariff) return;
+    setProperties((prev) =>
+      prev.length > 0
+        ? prev
+        : [{ id: uid(), groupId: tariff.groups[0]?.id ?? '', subtypeId: tariff.groups[0]?.subtypes[0]?.id ?? '', label: 'Taşınmaz 1' }]
+    );
+  }, [tariff]);
 
   function updateProperty(id: string, updated: PropertyInput) {
     setProperties((prev) => prev.map((p) => (p.id === id ? updated : p)));
@@ -185,13 +205,20 @@ export function NewCalculationPage() {
   // Sonuç ilk hesaplandığında Teklif Bedeli'ni Toplam Maliyet'e eşitle (yalnızca bir kez; kullanıcı
   // sonrasında serbestçe değiştirebilir, bu değişiklik Asgari Hizmet Bedeli/Toplam Maliyet'i etkilemez).
   useEffect(() => {
-    if (result && offerAmount === null) {
+    if (result && (offerAmount === null || !offerManual)) {
       setOfferAmount(result.subtotal);
     }
-  }, [result, offerAmount]);
+  }, [result, offerAmount, offerManual]);
 
   const pricing = offerAmount !== null && effectiveSettings ? computeProposalPricing(offerAmount, effectiveSettings.vatRatePercent) : null;
   const propertyDetailLines = result ? collectPropertyDetailLines(result.propertyBreakdowns, properties) : [];
+  const serviceLines = result && showServiceLines ? buildServiceLines(result.propertyBreakdowns, properties) : [];
+  const contentOptions = { serviceLines, customParagraphs };
+  // Belgelere giden taşınmaz bilgileri: kullanıcı kapatırsa hiçbir belgede görünmez.
+  const docPropertyDetailLines = showPropertyDetails ? propertyDetailLines : [];
+  // Editörde gösterilecek paragraflar: düzenleme varsa o, yoksa güncel tutarlarla otomatik metin.
+  const editorParagraphs =
+    customParagraphs ?? (pricing ? buildDefaultProposalParagraphs(customer, company, tariff!.tariffYear, pricing) : []);
 
   if (loading || !tariff || !effectiveSettings) {
     return <p>Tarife verisi yükleniyor…</p>;
@@ -231,7 +258,7 @@ export function NewCalculationPage() {
       offerAmount,
     });
 
-    const { plainText } = buildProposalContent(customer, company, tariff!.tariffYear, pricing, propertyDetailLines);
+    const { plainText } = buildProposalContent(customer, company, tariff!.tariffYear, pricing, docPropertyDetailLines, contentOptions);
     await db.proposals.put({
       id: uid(),
       createdAt: new Date().toISOString(),
@@ -244,6 +271,9 @@ export function NewCalculationPage() {
       bodyText: plainText,
       offerAmount,
       offerGrandTotal: pricing.grandTotal,
+      kind: 'single',
+      vatRatePercent: pricing.vatRatePercent,
+      contentOptions,
     });
 
     setSaved(true);
@@ -267,15 +297,15 @@ export function NewCalculationPage() {
   async function executeProposalAction(kind: ProposalActionKind) {
     if (!pricing) return;
     if (kind === 'pdf-download' || kind === 'pdf-share') {
-      const { blob, fileName } = buildProposalPdfBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines });
+      const { blob, fileName } = buildProposalPdfBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
       if (kind === 'pdf-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/pdf');
     } else if (kind === 'docx-download' || kind === 'docx-share') {
-      const { blob, fileName } = await buildProposalDocxBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines });
+      const { blob, fileName } = await buildProposalDocxBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
       if (kind === 'docx-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     } else if (kind === 'whatsapp') {
-      const { plainText } = buildProposalContent(customer, company, tariff!.tariffYear, pricing, propertyDetailLines);
+      const { plainText } = buildProposalContent(customer, company, tariff!.tariffYear, pricing, docPropertyDetailLines, contentOptions);
       shareTextToWhatsApp(plainText);
     }
     setPendingAction(null);
@@ -616,10 +646,20 @@ export function NewCalculationPage() {
 
             <div className="field" style={{ marginTop: 14 }}>
               <label className="field__label">Teklif Bedeli (TL) — müşteriye sunulacak</label>
-              <input className="input" type="number" min={0} value={offerAmount ?? 0} onChange={(e) => setOfferAmount(Number(e.target.value))} />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={offerAmount ?? 0}
+                onChange={(e) => {
+                  setOfferManual(true);
+                  setOfferAmount(Number(e.target.value));
+                }}
+              />
               <span className="field__hint">
-                Varsayılan olarak Toplam Maliyet ile aynıdır. Değiştirebilirsiniz; bu değişiklik
-                Asgari Hizmet Bedeli'ni ve Toplam Maliyet'i kesinlikle değiştirmez.
+                Siz elle değiştirmediğiniz sürece Toplam Maliyet ile aynı kalır ve yeniden
+                hesaplamalarda otomatik güncellenir. Elle değiştirmeniz Asgari Hizmet Bedeli'ni ve
+                Toplam Maliyet'i kesinlikle etkilemez.
               </span>
             </div>
 
@@ -631,6 +671,94 @@ export function NewCalculationPage() {
               <span className="result-row__label">Genel Toplam</span>
               <span className="result-row__value">{formatTL(pricing.grandTotal)}</span>
             </div>
+
+            {propertyDetailLines.length > 0 && (
+              <div className="checkbox-row" style={{ marginTop: 10 }}>
+                <div>
+                  <div className="checkbox-row__label">Taşınmaz bilgilerini teklifte göster</div>
+                  <div className="checkbox-row__value">Mahalle/Ada/Parsel bilgileri belgede ayrı bölüm olarak yer alır.</div>
+                </div>
+                <button
+                  type="button"
+                  className="switch"
+                  data-checked={showPropertyDetails}
+                  onClick={() => setShowPropertyDetails((v) => !v)}
+                  aria-label="Taşınmaz bilgilerini teklifte göster"
+                >
+                  <span className="switch__thumb" />
+                </button>
+              </div>
+            )}
+
+            {properties.length > 1 && (
+              <div className="checkbox-row" style={{ marginTop: 10 }}>
+                <div>
+                  <div className="checkbox-row__label">Hizmetleri teklifte ayrı listele</div>
+                  <div className="checkbox-row__value">
+                    Taşınmazlar "Hizmet Kapsamı" altında tutarsız satırlar olarak görünür; tutar tek
+                    satır Toplam Maliyet olarak kalır.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="switch"
+                  data-checked={showServiceLines}
+                  onClick={() => setShowServiceLines((v) => !v)}
+                  aria-label="Hizmetleri ayrı listele"
+                >
+                  <span className="switch__thumb" />
+                </button>
+              </div>
+            )}
+
+            <Accordion title="Teklif Metni" defaultOpen={false}>
+              <p className="field__hint" style={{ marginBottom: 10 }}>
+                Aşağıdaki metin otomatik oluşturulur ve yalnızca başlangıç önerisidir. Paragrafları
+                düzenleyebilir, silebilir veya yenilerini ekleyebilirsiniz.
+                {customParagraphs !== null && (
+                  <strong>
+                    {' '}Metin elle düzenlendi: tutar değişiklikleri metne otomatik yansımaz;
+                    gerekirse "Otomatik Metne Dön" ile güncel metni yeniden oluşturun.
+                  </strong>
+                )}
+              </p>
+              {editorParagraphs.map((para, idx) => (
+                <div key={idx} className="field">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="field__label">Paragraf {idx + 1}</label>
+                    <button
+                      type="button"
+                      className="remove-btn"
+                      onClick={() => setCustomParagraphs(editorParagraphs.filter((_, i) => i !== idx))}
+                    >
+                      Sil
+                    </button>
+                  </div>
+                  <textarea
+                    className="textarea"
+                    rows={3}
+                    value={para}
+                    onChange={(e) =>
+                      setCustomParagraphs(editorParagraphs.map((t, i) => (i === idx ? e.target.value : t)))
+                    }
+                  />
+                </div>
+              ))}
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  onClick={() => setCustomParagraphs([...editorParagraphs, ''])}
+                >
+                  Paragraf Ekle
+                </button>
+                {customParagraphs !== null && (
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={() => setCustomParagraphs(null)}>
+                    Otomatik Metne Dön
+                  </button>
+                )}
+              </div>
+            </Accordion>
           </div>
 
           <div className="card">
@@ -707,9 +835,10 @@ export function NewCalculationPage() {
 
       {pendingAction && pricing && (
         <ProposalPreviewModal
+          content={buildProposalContent(customer, company, tariff!.tariffYear, pricing, docPropertyDetailLines, contentOptions)}
           company={company}
           customer={customer}
-          propertyDetailLines={propertyDetailLines}
+          propertyDetailLines={docPropertyDetailLines}
           pricing={pricing}
           onEdit={() => setPendingAction(null)}
           onConfirm={() => executeProposalAction(pendingAction)}

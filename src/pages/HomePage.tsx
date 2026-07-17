@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CalculatorIcon, HistoryIcon, BuildingIcon, SettingsIcon } from '../components/icons';
+import { CalculatorIcon, HistoryIcon, BuildingIcon, SettingsIcon, ShareIcon } from '../components/icons';
 
 export function HomePage() {
   return (
@@ -16,6 +16,14 @@ export function HomePage() {
           <div>
             <div className="menu-card__title">Yeni Hesaplama</div>
             <div className="menu-card__desc">Taşınmaz bilgilerini girerek ücret hesapla</div>
+          </div>
+        </Link>
+
+        <Link to="/coklu-teklif" className="menu-card">
+          <div className="menu-card__icon"><ShareIcon /></div>
+          <div>
+            <div className="menu-card__title">Çoklu Teklif</div>
+            <div className="menu-card__desc">Kayıtlı raporları tek teklifte birleştir</div>
           </div>
         </Link>
 

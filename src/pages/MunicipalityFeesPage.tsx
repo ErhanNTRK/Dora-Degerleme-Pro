@@ -34,6 +34,7 @@ export function MunicipalityFeesPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!window.confirm('Bu belediye harcı kaydı silinecek. Emin misiniz?')) return;
     await db.municipalityFees.delete(id);
     load();
   }
