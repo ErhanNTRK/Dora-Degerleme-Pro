@@ -2,8 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// GitHub Pages: https://erhanntrk.github.io/Dora-SPK-Tarife/
-const BASE_PATH = '/Dora-SPK-Tarife/'
+// GitHub Pages: https://erhanntrk.github.io/Dora-Degerleme-Pro/
+const BASE_PATH = '/Dora-Degerleme-Pro/'
 
 export default defineConfig({
   base: BASE_PATH,
