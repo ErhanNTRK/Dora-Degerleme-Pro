@@ -61,8 +61,7 @@ export function NewCalculationPage() {
   const [province, setProvince] = useState('');
   const [district, setDistrict] = useState('');
   const [municipalityFee, setMunicipalityFee] = useState(0);
-  const [municipalityFeeSource, setMunicipalityFeeSource] = useState<'device' | 'database' | 'manual' | null>(null);
-  const [saveFeeToDevice, setSaveFeeToDevice] = useState(false);
+  const [municipalityFeeSource, setMunicipalityFeeSource] = useState<'database' | 'manual' | null>(null);
 
   const [showOtherFees, setShowOtherFees] = useState(false);
   const [otherFees, setOtherFees] = useState<OtherFeeLine[]>([]);
@@ -156,24 +155,16 @@ export function NewCalculationPage() {
     setDistrict('');
     setMunicipalityFee(0);
     setMunicipalityFeeSource(null);
-    setSaveFeeToDevice(false);
   }
 
-  async function handleDistrictChange(value: string) {
+  // Belediye harcı yalnızca merkezi resmi veriden gelir; veri yoksa hesaplamaya özel
+  // manuel giriş yapılır (cihazda kalıcı kayıt tutulmaz — resmi veri repo üzerinden,
+  // Veri Yönetimi ekranıyla güncellenir ve tüm cihazlara otomatik dağılır).
+  function handleDistrictChange(value: string) {
     setDistrict(value);
-    setSaveFeeToDevice(false);
     if (!value) {
       setMunicipalityFee(0);
       setMunicipalityFeeSource(null);
-      return;
-    }
-    const deviceRecords = await db.municipalityFees.toArray();
-    const deviceMatch = deviceRecords.find(
-      (r) => r.province.toLocaleUpperCase('tr') === province.toLocaleUpperCase('tr') && r.district.toLocaleUpperCase('tr') === value.toLocaleUpperCase('tr')
-    );
-    if (deviceMatch) {
-      setMunicipalityFee(deviceMatch.fee);
-      setMunicipalityFeeSource('device');
       return;
     }
     const districtRecord = districtOptions.find((d) => d.name === value);
@@ -224,23 +215,8 @@ export function NewCalculationPage() {
     return <p>Tarife verisi yükleniyor…</p>;
   }
 
-  async function persistMunicipalityFeeIfRequested() {
-    if (saveFeeToDevice && province && district) {
-      const existing = await db.municipalityFees.toArray();
-      const match = existing.find((r) => r.province === province && r.district === district);
-      await db.municipalityFees.put({
-        id: match?.id ?? uid(),
-        province,
-        district,
-        fee: municipalityFee,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-  }
-
   async function handleSave() {
     if (!result || offerAmount === null || !pricing) return;
-    await persistMunicipalityFeeIfRequested();
     const title = reportTitle.trim() || `Hesaplama — ${new Date().toLocaleDateString('tr-TR')}`;
     const calculationId = uid();
     await db.calculations.put({
@@ -500,21 +476,12 @@ export function NewCalculationPage() {
             {municipalityFeeSource === 'database' && (
               <p className="field__hint" style={{ marginBottom: 8 }}>Belediye harcı veri kaynağından otomatik getirildi.</p>
             )}
-            {municipalityFeeSource === 'device' && (
-              <p className="field__hint" style={{ marginBottom: 8 }}>Belediye harcı, cihazınızda daha önce kaydettiğiniz değerden getirildi.</p>
-            )}
 
             <div className="field">
               <label className="field__label">Belediye Harcı (TL)</label>
               <input className="input" type="number" min={0} value={municipalityFee} onChange={(e) => setMunicipalityFee(Number(e.target.value))} />
             </div>
 
-            {municipalityFeeSource === 'manual' && district && (
-              <label className="checkbox-row" style={{ cursor: 'pointer' }}>
-                <span className="checkbox-row__label">Bu belediye harcını cihazıma kaydet</span>
-                <input type="checkbox" checked={saveFeeToDevice} onChange={(e) => setSaveFeeToDevice(e.target.checked)} />
-              </label>
-            )}
           </div>
 
           <div className="card">

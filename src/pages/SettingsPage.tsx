@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useTariff } from '../context/TariffContext';
@@ -156,6 +157,17 @@ export function SettingsPage() {
       <p className="field__hint" style={{ marginTop: 14, textAlign: 'center' }}>
         Bu ayarlar yalnızca cihazınızda saklanır.
       </p>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="section-title">Yönetici</div>
+        <Link to="/veri-yonetimi" className="btn btn--secondary btn--block" style={{ textDecoration: 'none' }}>
+          Veri Yönetimi — Yıllık Tarife ve Harç Güncelleme
+        </Link>
+        <p className="field__hint" style={{ marginTop: 8 }}>
+          Yeni yıl SPK tarifesi ve belediye harçları buradan üretilir; repoya yüklendiğinde tüm
+          cihazlara otomatik dağılır.
+        </p>
+      </div>
     </div>
   );
 }

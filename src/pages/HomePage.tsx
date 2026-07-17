@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CalculatorIcon, HistoryIcon, BuildingIcon, SettingsIcon, ShareIcon } from '../components/icons';
+import { CalculatorIcon, HistoryIcon, SettingsIcon, ShareIcon } from '../components/icons';
 
 export function HomePage() {
   return (
@@ -32,14 +32,6 @@ export function HomePage() {
           <div>
             <div className="menu-card__title">Hesap Geçmişi</div>
             <div className="menu-card__desc">Geçmiş hesaplamaları görüntüle</div>
-          </div>
-        </Link>
-
-        <Link to="/belediye-harclari" className="menu-card">
-          <div className="menu-card__icon"><BuildingIcon /></div>
-          <div>
-            <div className="menu-card__title">Belediye Harçları</div>
-            <div className="menu-card__desc">İl / ilçe bazlı harç kayıtları</div>
           </div>
         </Link>
 
