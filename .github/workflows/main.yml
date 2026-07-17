@@ -1,0 +1,66 @@
+# Dora Değerleme Pro — GitHub Pages otomatik yayınlama
+#
+# Her `main` push'unda: bağımlılıkları kur → testleri koş → build → GitHub Pages'a yayınla.
+# Yayın adresi: https://erhanntrk.github.io/Dora-Degerleme-Pro/
+#
+# TEK SEFERLİK KURULUM: Repo → Settings → Pages → "Build and deployment" → Source:
+# "GitHub Actions" seçilmelidir; aksi halde deploy adımı yetki hatası verir.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Actions sekmesinden elle tetikleme imkânı
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Aynı anda tek deploy: yeni push geldiğinde kuyruktaki eski deploy beklemeye alınır,
+# yarım kalan yayın olmaz.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kaynak kodu al
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıkları kur (npm ci — lock dosyasıyla birebir)
+        run: npm ci
+
+      - name: Build (tsc + vite)
+        run: npm run build
+
+      # SPA yönlendirme çözümü: GitHub Pages sunucu tarafı rewrite bilmez; /gecmis gibi
+      # bir derin linke doğrudan girildiğinde 404 döner. 404.html = index.html kopyası
+      # sayesinde uygulama yine yüklenir ve router doğru sayfayı gösterir.
+      - name: SPA 404 fallback oluştur
+        run: cp dist/index.html dist/404.html
+
+      - name: Pages artifact'ını yükle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pages'a yayınla
+        id: deployment
+        uses: actions/deploy-pages@v4
