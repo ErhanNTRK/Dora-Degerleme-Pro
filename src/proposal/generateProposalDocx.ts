@@ -34,7 +34,7 @@ export async function buildProposalDocxBlob({ customer, company, tariffYear, pri
     try {
       children.push(
         new Paragraph({
-          children: [new ImageRun({ data: dataUrlToUint8Array(company.logoDataUrl), transformation: { width: 90, height: 90 }, type: 'png' })],
+          children: [new ImageRun({ data: dataUrlToUint8Array(company.logoDataUrl), transformation: { width: 130, height: 130 }, type: 'png' })],
         })
       );
     } catch {
@@ -71,7 +71,7 @@ export async function buildProposalDocxBlob({ customer, company, tariffYear, pri
     new Paragraph({
       heading: HeadingLevel.HEADING_1,
       spacing: { after: 40 },
-      children: [new TextRun({ text: 'FİYAT TEKLİFİ', bold: true, color: '0F2A47', size: 32 })],
+      children: [new TextRun({ text: 'FİYAT TEKLİFİ', bold: true, color: '0F2A47', size: 38 })],
     })
   );
   children.push(

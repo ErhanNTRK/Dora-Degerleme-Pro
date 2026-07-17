@@ -24,8 +24,8 @@ interface ProposalPdfOpts {
  * renkler ve görsel öğeler birebir aynı kalır. Amaç: mümkünse tek sayfa.
  */
 const LAYOUT = {
-  normal:  { startY: 20, headerBlock: 28, afterDivider: 10, titleGap: 11, salutationGap: 9, paraLine: 5.7, paraGap: 5.5, svcLine: 5.2, svcGap: 2, feeSepGap: 3.5, boxH: 34, boxRow1: 8, boxRow2: 14.5, boxSep: 18.5, boxTotal: 25.5, boxWords: 31, boxGap: 8, detailLine: 4.8, sigGap: 6 },
-  compact: { startY: 14, headerBlock: 24, afterDivider: 7,  titleGap: 8,  salutationGap: 7, paraLine: 5.2, paraGap: 3,   svcLine: 4.9, svcGap: 1.2, feeSepGap: 2.4, boxH: 28, boxRow1: 6.5, boxRow2: 12,  boxSep: 15.3, boxTotal: 21.2, boxWords: 25.6, boxGap: 5, detailLine: 4.3, sigGap: 4.5 },
+  normal:  { startY: 16, logoSize: 30, headerBlock: 36, afterDivider: 10, titleSize: 19, titleGap: 12, salutationGap: 9, paraLine: 5.7, paraGap: 5.5, svcLine: 5.2, svcGap: 2, feeSepGap: 3.5, boxH: 34, boxRow1: 8, boxRow2: 14.5, boxSep: 18.5, boxTotal: 25.5, boxWords: 31, boxGap: 8, detailLine: 4.8, sigGap: 6 },
+  compact: { startY: 12, logoSize: 24, headerBlock: 29, afterDivider: 7,  titleSize: 17, titleGap: 8.5, salutationGap: 7, paraLine: 5.2, paraGap: 3,   svcLine: 4.9, svcGap: 1.2, feeSepGap: 2.4, boxH: 28, boxRow1: 6.5, boxRow2: 12,  boxSep: 15.3, boxTotal: 21.2, boxWords: 25.6, boxGap: 5, detailLine: 4.3, sigGap: 4.5 },
 } as const;
 
 type LayoutMetrics = (typeof LAYOUT)[keyof typeof LAYOUT];
@@ -40,6 +40,16 @@ export function buildProposalPdfDoc(opts: ProposalPdfOpts): jsPDF {
   return compact.getNumberOfPages() <= 1 ? compact : normal;
 }
 
+/** Kurumsal bölüm başlığı: küçük amber blok + lacivert başlık. */
+function drawSectionTitle(doc: jsPDF, text: string, x: number, y: number) {
+  doc.setFillColor(...AMBER);
+  doc.rect(x, y - 3, 2.2, 3.6, 'F');
+  doc.setFont('Roboto', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...NAVY);
+  doc.text(text, x + 4.2, y);
+}
+
 function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDetailLines = [], contentOptions = {} }: ProposalPdfOpts, m: LayoutMetrics): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   registerReportFonts(doc);
@@ -48,31 +58,47 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
   const margin = 20;
   let y: number = m.startY;
 
-  // ---------- Üst logo + firma bilgisi ----------
+  // ---------- Üst blok: büyük logo + dikey ortalanmış firma künyesi ----------
+  const logoSize = m.logoSize;
   try {
     const logoSrc = company.logoDataUrl || LOGO_BASE64;
-    doc.addImage(logoSrc, detectImageFormat(logoSrc), margin, y, 20, 20);
+    doc.addImage(logoSrc, detectImageFormat(logoSrc), margin, y, logoSize, logoSize);
   } catch {
     /* yoksay */
   }
-  doc.setTextColor(...NAVY);
-  doc.setFont('Roboto', 'bold');
-  doc.setFontSize(13);
-  doc.text(company.companyName, margin + 25, y + 7);
-  doc.setFont('Roboto', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...GRAY);
+  const infoX = margin + logoSize + 6;
+  const infoW = pageWidth - margin - infoX;
+  // Künye satır sayısına göre dikey ortala
   const contactLine = [company.address, company.phone, company.email].filter(Boolean).join('  •  ');
-  if (contactLine) doc.text(contactLine, margin + 25, y + 12, { maxWidth: pageWidth - margin * 2 - 25 });
   const taxLine = [company.taxOffice && `V.D.: ${company.taxOffice}`, company.taxNumber && `VKN: ${company.taxNumber}`]
     .filter(Boolean)
     .join('  •  ');
-  if (taxLine) doc.text(taxLine, margin + 25, y + 16.5);
+  const infoLines = 1 + (contactLine ? 1 : 0) + (taxLine ? 1 : 0);
+  let infoY = y + logoSize / 2 - (infoLines - 1) * 2.6 + 1.5;
+  doc.setTextColor(...NAVY);
+  doc.setFont('Roboto', 'bold');
+  doc.setFontSize(14.5);
+  doc.text(company.companyName, infoX, infoY, { maxWidth: infoW });
+  doc.setFont('Roboto', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...GRAY);
+  if (contactLine) {
+    infoY += 5.6;
+    doc.text(contactLine, infoX, infoY, { maxWidth: infoW });
+  }
+  if (taxLine) {
+    infoY += 4.6;
+    doc.text(taxLine, infoX, infoY);
+  }
 
   y += m.headerBlock;
+  // Çift tonlu ayraç: kalın lacivert + hemen altında ince amber (kurumsal kimlik)
   doc.setDrawColor(...NAVY);
-  doc.setLineWidth(0.6);
+  doc.setLineWidth(0.9);
   doc.line(margin, y, pageWidth - margin, y);
+  doc.setDrawColor(...AMBER);
+  doc.setLineWidth(0.4);
+  doc.line(margin, y + 1.1, pageWidth - margin, y + 1.1);
   y += m.afterDivider;
 
   // ---------- Başlık ----------
@@ -81,17 +107,17 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
   );
 
   doc.setFont('Roboto', 'bold');
-  doc.setFontSize(16);
+  doc.setFontSize(m.titleSize);
   doc.setTextColor(...NAVY);
   doc.text('FİYAT TEKLİFİ', margin, y);
   doc.setFont('Roboto', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...GRAY);
   doc.text(`Teklif Tarihi: ${proposalDate}`, pageWidth - margin, y, { align: 'right' });
-  y += 3;
+  y += 3.2;
   doc.setDrawColor(...AMBER);
-  doc.setLineWidth(0.9);
-  doc.line(margin, y, margin + 34, y);
+  doc.setLineWidth(1.2);
+  doc.line(margin, y, margin + 40, y);
   y += m.titleGap;
 
   // ---------- Gövde ----------
@@ -123,10 +149,7 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
       doc.addPage();
       y = 24;
     }
-    doc.setFont('Roboto', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...NAVY);
-    doc.text('HİZMET VE ÜCRET DÖKÜMÜ', margin, y);
+    drawSectionTitle(doc, 'HİZMET VE ÜCRET DÖKÜMÜ', margin, y);
     y += 6.5;
     doc.setFontSize(9.8);
     serviceFeeItems.forEach((item, i) => {
@@ -155,10 +178,7 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
       doc.addPage();
       y = 24;
     }
-    doc.setFont('Roboto', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...NAVY);
-    doc.text('HİZMET KAPSAMI', margin, y);
+    drawSectionTitle(doc, 'HİZMET KAPSAMI', margin, y);
     y += 6;
     doc.setFont('Roboto', 'normal');
     doc.setFontSize(10);
@@ -220,10 +240,7 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
       doc.addPage();
       y = 24;
     }
-    doc.setFont('Roboto', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...NAVY);
-    doc.text('TAŞINMAZ BİLGİLERİ', margin, y);
+    drawSectionTitle(doc, 'TAŞINMAZ BİLGİLERİ', margin, y);
     y += 6;
     doc.setFont('Roboto', 'normal');
     doc.setFontSize(9);
@@ -295,6 +312,9 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageHeight - 13.5, pageWidth - margin, pageHeight - 13.5);
     doc.setFont('Roboto', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...GRAY);
