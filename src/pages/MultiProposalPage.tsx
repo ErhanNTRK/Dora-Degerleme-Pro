@@ -281,7 +281,11 @@ export function MultiProposalPage() {
                   </div>
                   <div className="field">
                     <label className="field__label">Adet</label>
-                    <input className="input" type="number" inputMode="numeric" min={1} value={row.count} onChange={(e) => updateRow(row.id, { count: Math.max(1, Number(e.target.value)) })} />
+                    <input className="input" type="number" inputMode="numeric" min={1} value={row.count} onChange={(e) => {
+                      const count = Math.max(1, Number(e.target.value));
+                      const areas = row.areas ? Array.from({ length: count }, (_, j) => row.areas![j] ?? row.areas![row.areas!.length - 1] ?? 0) : undefined;
+                      updateRow(row.id, { count, areas: count === 1 ? undefined : areas, area: count === 1 ? (row.areas?.[0] ?? row.area) : row.area });
+                    }} />
                   </div>
                 </div>
 
@@ -313,10 +317,38 @@ export function MultiProposalPage() {
                   </div>
                 )}
 
-                <div className="field">
-                  <label className="field__label">Alan (m²)</label>
-                  <input className="input" type="number" inputMode="decimal" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined })} />
-                </div>
+                {row.count === 1 ? (
+                  <div className="field">
+                    <label className="field__label">Alan (m²)</label>
+                    <input className="input" type="number" inputMode="decimal" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined, areas: undefined })} />
+                  </div>
+                ) : (
+                  <div className="field">
+                    <label className="field__label">Taşınmaz Alanları (m²)</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                      {Array.from({ length: row.count }, (_, i) => (
+                        <input
+                          key={i}
+                          className="input"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          placeholder={`${i + 1}. m²`}
+                          value={row.areas?.[i] ?? row.area ?? ''}
+                          onChange={(e) => {
+                            const next = Array.from({ length: row.count }, (_, j) => row.areas?.[j] ?? row.area ?? 0);
+                            next[i] = e.target.value ? Number(e.target.value) : 0;
+                            updateRow(row.id, { areas: next, area: undefined });
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <span className="field__hint">
+                      Her taşınmazın kendi alanını girin (ör. aynı binadaki 50 / 155 / 275 m² üç daire).
+                      Hepsi TEK RAPOR sayılır; harçlar bir kez alınır, dilim ücretleri taşınmaz başına bulunur.
+                    </span>
+                  </div>
+                )}
 
                 {bulkEligible && (
                   <div className="checkbox-row">

@@ -71,12 +71,16 @@ describe('SPK çapraz denetimi (satırlar arası)', () => {
     const c = { ...createEmptyRow(tariff, 'c'), groupId: 'G2', subtypeId: 'G2-T1', ada: '77', parsel: '12', province: 'ANKARA', district: 'ÇANKAYA' };
     expect(findCrossRowIssues([a, b, c])).toHaveLength(0);
   });
-  it('aynı mahalledeki G1 satırlarını %20 uyarısıyla yakalar; farklı alanlarda birleştirme önermez', () => {
+  it('aynı mahalledeki farklı alanlı G1 satırları: %20 uyarısı + alanları koruyarak birleştirme', () => {
     const a = { ...createEmptyRow(tariff, 'a'), groupId: 'G1', subtypeId: 'G1-T1', area: 5000, mahalle: 'Merkez', province: 'MALATYA', district: 'BATTALGAZİ' };
-    const b = { ...createEmptyRow(tariff, 'b'), groupId: 'G1', subtypeId: 'G1-T1', area: 8000, mahalle: 'merkez', province: 'MALATYA', district: 'BATTALGAZİ' };
+    const b = { ...createEmptyRow(tariff, 'b'), groupId: 'G1', subtypeId: 'G1-T1', area: 8000, count: 2, mahalle: 'merkez', province: 'MALATYA', district: 'BATTALGAZİ' };
     const issues = findCrossRowIssues([a, b]);
     expect(issues).toHaveLength(1);
     expect(issues[0].message).toContain('%20');
-    expect(issues[0].canMerge).toBe(false); // alanlar farklı → otomatik birleştirme yok
+    expect(issues[0].canMerge).toBe(true); // farklı alanlar artık listeye toplanarak birleşir
+    const merged = mergeRows([a, b], issues[0].rowIds);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].count).toBe(3);
+    expect(merged[0].areas).toEqual([5000, 8000, 8000]); // her taşınmaz kendi alanını korur
   });
 });

@@ -23,7 +23,12 @@ export interface ProposalRow {
   // --- custom satır alanları ---
   groupId: string;
   subtypeId: string;
+  /** Tek taşınmaz veya tüm taşınmazlar aynı alandaysa kullanılan alan. */
   area?: number;
+  /** Adet > 1 ve alanlar FARKLIYSA taşınmaz başına m² listesi (uzunluk = count).
+   *  Aynı binadaki 50/155/275 m² üç daire TEK RAPOR olarak bu alanla girilir;
+   *  motor her taşınmazın dilim ücretini ayrı bulur, toplu değerlemeyi doğru uygular. */
+  areas?: number[];
   /** Aynı türden taşınmaz adedi (ör. "Kadıköy'de 2 dükkan" → 2). Tapu sayısı da budur. */
   count: number;
   /** Adet > 1 iken: G1 aynı mahalle / G2 aynı parsel toplu değerleme koşulu. */
@@ -69,7 +74,8 @@ export function buildRowCalculationInput(row: ProposalRow, settings: Calculation
     id: `${row.id}-p${i}`,
     groupId: row.groupId,
     subtypeId: row.subtypeId,
-    area: row.area,
+    area: row.areas?.[i] ?? row.area,
+    serviceAlias: row.serviceAlias,
     label: `Taşınmaz ${i + 1}`,
     mahalle: row.mahalle,
     ada: row.ada,
@@ -111,7 +117,7 @@ export function computeRow(tariff: Tariff, row: ProposalRow, settings: Calculati
 export function rowDocumentLabel(row: ProposalRow, tariff: Tariff, aliases: ServiceAlias[] = []): string {
   if (row.label.trim()) return withLocation(row.label.trim(), row);
   if (row.kind === 'saved') return withLocation(row.savedTitle ?? 'Değerleme Raporu', row);
-  const areaPart = row.area ? ` (${row.area.toLocaleString('tr-TR')} m²)` : '';
+  const areaPart = rowAreaText(row);
   const aliasName = serviceDocumentName(aliases, row.serviceAlias, row.count);
   if (aliasName) return withLocation(`${aliasName}${areaPart}`.replace(' Değerlemesi (', ' Değerlemesi ('), row);
   const group = tariff.groups.find((g) => g.id === row.groupId);
@@ -119,6 +125,19 @@ export function rowDocumentLabel(row: ProposalRow, tariff: Tariff, aliases: Serv
   const name = [group?.name, subtype?.name].filter(Boolean).join(' — ') || 'Değerleme Hizmeti';
   const countPart = row.count > 1 ? `${row.count} adet ` : '';
   return withLocation(`${countPart}${name}${areaPart} Değerlemesi`, row);
+}
+
+/** Alan gösterimi: tek alan "(145 m²)"; farklı alanlar "(50, 155, 275 m²)"; çoksa toplam. */
+function rowAreaText(row: ProposalRow): string {
+  const areas = (row.areas ?? []).filter((a) => a > 0);
+  if (areas.length > 1) {
+    const distinct = new Set(areas);
+    if (distinct.size === 1) return ` (${areas.length} × ${areas[0].toLocaleString('tr-TR')} m²)`;
+    if (areas.length <= 4) return ` (${areas.map((a) => a.toLocaleString('tr-TR')).join(', ')} m²)`;
+    const total = areas.reduce((s, a) => s + a, 0);
+    return ` (toplam ${total.toLocaleString('tr-TR')} m²)`;
+  }
+  return row.area ? ` (${row.area.toLocaleString('tr-TR')} m²)` : '';
 }
 
 function withLocation(base: string, row: ProposalRow): string {
@@ -171,7 +190,7 @@ export function findCrossRowIssues(rows: ProposalRow[]): CrossRowIssue[] {
   for (const g of groupBy((r) =>
     r.groupId === 'G2' && r.ada && r.parsel ? ['G2', norm(r.province), norm(r.district), norm(r.ada), norm(r.parsel)].join('|') : null
   )) {
-    const sameShape = g.every((x) => x.r.subtypeId === g[0].r.subtypeId && x.r.area === g[0].r.area);
+    const sameShape = g.every((x) => x.r.subtypeId === g[0].r.subtypeId);
     issues.push({
       rowIds: g.map((x) => x.r.id),
       rowNumbers: g.map((x) => x.n),
@@ -184,7 +203,7 @@ export function findCrossRowIssues(rows: ProposalRow[]): CrossRowIssue[] {
   for (const g of groupBy((r) =>
     r.groupId === 'G1' && r.mahalle ? ['G1', norm(r.province), norm(r.district), norm(r.mahalle)].join('|') : null
   )) {
-    const sameShape = g.every((x) => x.r.subtypeId === g[0].r.subtypeId && x.r.area === g[0].r.area);
+    const sameShape = g.every((x) => x.r.subtypeId === g[0].r.subtypeId);
     issues.push({
       rowIds: g.map((x) => x.r.id),
       rowNumbers: g.map((x) => x.n),
@@ -201,9 +220,17 @@ export function mergeRows(rows: ProposalRow[], rowIds: string[]): ProposalRow[] 
   const targets = rows.filter((r) => rowIds.includes(r.id));
   if (targets.length < 2) return rows;
   const first = targets[0];
+  // Her satırın taşınmaz başına alanları (areas yoksa area tekrarı) tek listeye toplanır;
+  // böylece farklı alanlı taşınmazlar birleşen TEK raporda kendi dilim ücretlerini korur.
+  const unitAreas = targets.flatMap((r) => {
+    const n = Math.max(1, r.count);
+    return r.areas?.length === n ? r.areas : Array.from({ length: n }, () => r.area ?? 0);
+  });
   const merged: ProposalRow = {
     ...first,
-    count: targets.reduce((s, r) => s + Math.max(1, r.count), 0),
+    count: unitAreas.length,
+    areas: unitAreas.every((a) => a === unitAreas[0]) ? undefined : unitAreas,
+    area: unitAreas.every((a) => a === unitAreas[0]) ? unitAreas[0] || first.area : undefined,
     bulkTogether: true,
     manualAmount: null, // birleşince tutar motor tarafından yeniden hesaplanmalı
   };

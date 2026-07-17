@@ -47,6 +47,24 @@ describe('computeRow — satır = bir rapor', () => {
   });
 });
 
+describe('computeRow — aynı raporda FARKLI alanlı taşınmazlar', () => {
+  it('aynı binada 3 daire (50/155/275 m²): tek rapor, dilimler taşınmaz başına, %15 toplu değerleme', () => {
+    const r = row({ groupId: 'G2', subtypeId: 'G2-T1', count: 3, areas: [50, 155, 275], bulkTogether: true, municipalityFee: 0 });
+    const c = computeRow(tariff, r, settings);
+    // Dilimler: 50→16.500, 155→17.622, 275→20.217. En büyük (20.217) tam; diğerleri %15.
+    const expectedProps = 20217 + 0.15 * 16500 + 0.15 * 17622;
+    expect(c.subtotal).toBeCloseTo(expectedProps + 3 * 307 + 176 + 125 + 2645.06, 2);
+  });
+  it('2 dükkan (5/550 m²) tek satır: TEK rapor harcı, her dükkan kendi dilim ücretini tam öder (G5 toplu değerleme kapsamı dışı)', () => {
+    const r = row({ groupId: 'G5', subtypeId: 'G5-T1', count: 2, areas: [5, 550] });
+    const c = computeRow(tariff, r, settings);
+    expect(c.result!.infoCenterFee).toBe(176); // rapor ücreti bir kez
+    expect(c.result!.propertyBreakdowns[0].finalFee).toBe(c.result!.propertyBreakdowns[0].baseFee);
+    expect(c.result!.propertyBreakdowns[1].finalFee).toBe(c.result!.propertyBreakdowns[1].baseFee);
+    expect(c.result!.propertyBreakdowns[0].baseFee).not.toBe(c.result!.propertyBreakdowns[1].baseFee);
+  });
+});
+
 describe('rowEffectiveAmount ve rowDocumentLabel', () => {
   it('elle ezme yalnızca müşteri tutarını değiştirir', () => {
     const r = row({ groupId: 'G2', subtypeId: 'G2-T1', area: 100, manualAmount: 25000 });
