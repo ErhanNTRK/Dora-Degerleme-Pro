@@ -3,6 +3,7 @@ import type { PropertyInput } from '../types/calculation';
 import { TrashIcon, AlertIcon } from './icons';
 import { findGroup, findSubtype } from '../engine/tariffLookup';
 import { Accordion } from './Accordion';
+import { findAliasByName, type ServiceAlias } from '../types/serviceAliases';
 
 interface Props {
   tariff: Tariff;
@@ -12,9 +13,11 @@ interface Props {
   onRemove: () => void;
   canRemove: boolean;
   showBulkOption?: 'neighborhood' | 'parcel' | null;
+  /** Sade hizmet adları (görünüm katmanı). Boşsa yalnızca SPK seçimi gösterilir. */
+  serviceAliases?: ServiceAlias[];
 }
 
-export function PropertyCard({ tariff, index, property, onChange, onRemove, canRemove, showBulkOption }: Props) {
+export function PropertyCard({ tariff, index, property, onChange, onRemove, canRemove, showBulkOption, serviceAliases = [] }: Props) {
   const group = findGroup(tariff, property.groupId);
   const subtype = group ? findSubtype(tariff, property.groupId, property.subtypeId) : undefined;
 
@@ -47,6 +50,28 @@ export function PropertyCard({ tariff, index, property, onChange, onRemove, canR
     onChange({ ...property, subtypeId, area: undefined, manualFee: undefined });
   }
 
+  /** Sade hizmet seçimi: alias arka planda doğru SPK grup/türünü ayarlar. */
+  function handleAliasChange(name: string) {
+    if (name === '__spk') {
+      onChange({ ...property, serviceAlias: undefined });
+      return;
+    }
+    const alias = findAliasByName(serviceAliases, name);
+    if (!alias) return;
+    onChange({
+      ...property,
+      serviceAlias: name,
+      groupId: alias.groupId,
+      subtypeId: alias.subtypeId,
+      manualFee: undefined,
+      referenceGroupId: undefined,
+      referenceSubtypeId: undefined,
+      referenceArea: undefined,
+    });
+  }
+
+  const usingAlias = serviceAliases.length > 0 && !!property.serviceAlias;
+
   // Referans grup seçimi (9. ve 11. grup için) — kendi grubu hariç, alan bazlı gerçek gruplar
   const referenceGroups = tariff.groups.filter((g) => !g.isPercentOfBaseGroupFee && !g.isMultiplierOfBaseGroupFee);
   const referenceGroup = property.referenceGroupId ? findGroup(tariff, property.referenceGroupId) : undefined;
@@ -70,19 +95,33 @@ export function PropertyCard({ tariff, index, property, onChange, onRemove, canR
         )}
       </div>
 
-      <div className="field">
-        <label className="field__label">Taşınmaz Grubu</label>
-        <select className="select" value={property.groupId} onChange={(e) => handleGroupChange(e.target.value)}>
-          {tariff.groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.code}. Grup — {g.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {serviceAliases.length > 0 && (
+        <div className="field">
+          <label className="field__label">Ne değerleniyor?</label>
+          <select className="select" value={usingAlias ? property.serviceAlias : '__spk'} onChange={(e) => handleAliasChange(e.target.value)}>
+            {serviceAliases.map((a) => (
+              <option key={a.name} value={a.name}>{a.name}</option>
+            ))}
+            <option value="__spk">Diğer — SPK grubuyla seç…</option>
+          </select>
+        </div>
+      )}
+
+      {!usingAlias && (
+        <div className="field">
+          <label className="field__label">Taşınmaz Grubu</label>
+          <select className="select" value={property.groupId} onChange={(e) => handleGroupChange(e.target.value)}>
+            {tariff.groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.code}. Grup — {g.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="property-row-split" style={{ gridTemplateColumns: needsArea ? '1fr 92px' : '1fr' }}>
-        {group && (
+        {group && !usingAlias && (
           <div className="field">
             <label className="field__label">Tür</label>
             <select className="select" value={property.subtypeId} onChange={(e) => handleSubtypeChange(e.target.value)}>

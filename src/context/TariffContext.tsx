@@ -1,16 +1,20 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Tariff } from '../types/tariff';
 import { DEFAULT_TARIFFS_INDEX, type TariffsIndex } from '../types/dataIndex';
+import { DEFAULT_SERVICE_ALIASES, type ServiceAlias, type ServiceAliasFile } from '../types/serviceAliases';
 
 interface TariffContextValue {
   tariff: Tariff | null;
   /** Merkezi veri indeksi; LocationContext il/ilçe dosya adını buradan alır. */
   dataIndex: TariffsIndex;
+  /** Hizmet türü takma adları (görünüm katmanı — hesaplamayı etkilemez). */
+  serviceAliases: ServiceAlias[];
   loading: boolean;
   error: string | null;
 }
 
-const TariffContext = createContext<TariffContextValue>({ tariff: null, dataIndex: DEFAULT_TARIFFS_INDEX, loading: true, error: null });
+const TariffContext = createContext<TariffContextValue>({ tariff: null, dataIndex: DEFAULT_TARIFFS_INDEX, serviceAliases: DEFAULT_SERVICE_ALIASES, loading: true, error: null });
+const ALIASES_CACHE_KEY = 'dora-service-aliases-cache-v1';
 
 const TARIFF_CACHE_KEY = 'dora-tariff-cache-v1';
 const INDEX_CACHE_KEY = 'dora-tariffs-index-cache-v1';
@@ -39,6 +43,7 @@ async function fetchJsonWithCache<T>(url: string, cacheKey: string): Promise<T |
 export function TariffProvider({ children }: { children: ReactNode }) {
   const [tariff, setTariff] = useState<Tariff | null>(null);
   const [dataIndex, setDataIndex] = useState<TariffsIndex>(DEFAULT_TARIFFS_INDEX);
+  const [serviceAliases, setServiceAliases] = useState<ServiceAlias[]>(DEFAULT_SERVICE_ALIASES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +58,10 @@ export function TariffProvider({ children }: { children: ReactNode }) {
         DEFAULT_TARIFFS_INDEX;
       const active = index.years.find((y) => y.year === index.activeYear) ?? index.years[index.years.length - 1] ?? DEFAULT_TARIFFS_INDEX.years[0];
       if (!cancelled) setDataIndex(index);
+
+      // 1b) Hizmet adları (görünüm katmanı); okunamazsa gömülü varsayılan.
+      const aliasFile = await fetchJsonWithCache<ServiceAliasFile>(`${import.meta.env.BASE_URL}data/service-aliases.json`, ALIASES_CACHE_KEY);
+      if (!cancelled && aliasFile?.aliases?.length) setServiceAliases(aliasFile.aliases);
 
       // 2) Aktif yılın tarifesi (service worker offline'da cache'den karşılar).
       const data = await fetchJsonWithCache<Tariff>(
@@ -74,7 +83,7 @@ export function TariffProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  return <TariffContext.Provider value={{ tariff, dataIndex, loading, error }}>{children}</TariffContext.Provider>;
+  return <TariffContext.Provider value={{ tariff, dataIndex, serviceAliases, loading, error }}>{children}</TariffContext.Provider>;
 }
 
 export function useTariff() {

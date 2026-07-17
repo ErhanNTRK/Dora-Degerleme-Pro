@@ -45,7 +45,7 @@ const STEPS = ['Taşınmaz Bilgileri', 'Harçlar', 'Sonuç'] as const;
 type ProposalActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' | 'whatsapp';
 
 export function NewCalculationPage() {
-  const { tariff, loading } = useTariff();
+  const { tariff, serviceAliases, loading } = useTariff();
   const { settings } = useSettings();
   const { locationDb } = useLocationDb();
   const { profile: company } = useCompanyProfile();
@@ -203,7 +203,7 @@ export function NewCalculationPage() {
 
   const pricing = offerAmount !== null && effectiveSettings ? computeProposalPricing(offerAmount, effectiveSettings.vatRatePercent) : null;
   const propertyDetailLines = result ? collectPropertyDetailLines(result.propertyBreakdowns, properties) : [];
-  const serviceLines = result && showServiceLines ? buildServiceLines(result.propertyBreakdowns, properties) : [];
+  const serviceLines = result && showServiceLines ? buildServiceLines(result.propertyBreakdowns, properties, serviceAliases) : [];
   const contentOptions = { serviceLines, customParagraphs };
   // Belgelere giden taşınmaz bilgileri: kullanıcı kapatırsa hiçbir belgede görünmez.
   const docPropertyDetailLines = showPropertyDetails ? propertyDetailLines : [];

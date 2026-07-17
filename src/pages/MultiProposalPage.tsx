@@ -16,8 +16,11 @@ import {
   computeRow,
   rowDocumentLabel,
   rowEffectiveAmount,
+  findCrossRowIssues,
+  mergeRows,
   type ProposalRow,
 } from '../proposal/multiProposalRows';
+import { findAliasByName } from '../types/serviceAliases';
 import { buildProposalPdfBlob } from '../proposal/generateProposalPdf';
 import { buildProposalDocxBlob } from '../proposal/generateProposalDocx';
 import { ProposalPreviewModal } from '../components/ProposalPreviewModal';
@@ -39,7 +42,7 @@ type ActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' 
  * bu yalnızca müşteri teklifini etkiler, motoru ve kayıtları etkilemez.
  */
 export function MultiProposalPage() {
-  const { tariff } = useTariff();
+  const { tariff, serviceAliases } = useTariff();
   const { settings } = useSettings();
   const { profile: company } = useCompanyProfile();
   const { locationDb } = useLocationDb();
@@ -57,10 +60,18 @@ export function MultiProposalPage() {
     db.calculations.orderBy('createdAt').reverse().toArray().then(setSavedCalcs);
   }, []);
 
+  function newRow(): ProposalRow {
+    const base = createEmptyRow(tariff!, uid());
+    const first = serviceAliases[0];
+    // Varsayılan: en yaygın hizmet türü (listenin ilki) — sahada en az dokunuş.
+    return first ? { ...base, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : base;
+  }
+
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
     if (!tariff) return;
-    setRows((prev) => (prev.length > 0 ? prev : [createEmptyRow(tariff, uid())]));
+    setRows((prev) => (prev.length > 0 ? prev : [{ ...createEmptyRow(tariff, uid()), ...(serviceAliases[0] ? { serviceAlias: serviceAliases[0].name, groupId: serviceAliases[0].groupId, subtypeId: serviceAliases[0].subtypeId } : {}) }]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tariff]);
 
   const calcSettings: CalculationSettings | null = useMemo(() => {
@@ -86,10 +97,10 @@ export function MultiProposalPage() {
   const feeItems: ServiceFeeItem[] = useMemo(() => {
     if (!tariff) return [];
     return rows.map((r) => ({
-      label: rowDocumentLabel(r, tariff),
+      label: rowDocumentLabel(r, tariff, serviceAliases),
       amount: rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null }),
     }));
-  }, [rows, tariff, computations]);
+  }, [rows, tariff, computations, serviceAliases]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
   const vatRate = settings?.vatRatePercent ?? 20;
@@ -113,7 +124,7 @@ export function MultiProposalPage() {
 
   function addRow() {
     if (!tariff) return;
-    setRows((prev) => [...prev, createEmptyRow(tariff, uid())]);
+    setRows((prev) => [...prev, newRow()]);
   }
 
   function removeRow(id: string) {
@@ -207,7 +218,7 @@ export function MultiProposalPage() {
   const provinceOptions = locationDb?.provinces ?? [];
 
   return (
-    <div>
+    <div style={{ paddingBottom: 76 }}>
       <div className="page__header">
         <span className="page__eyebrow">Teklif</span>
         <h1 className="page__title">Çoklu Teklif</h1>
@@ -249,39 +260,62 @@ export function MultiProposalPage() {
               <>
                 <div className="property-row-split">
                   <div className="field">
-                    <label className="field__label">Grup</label>
+                    <label className="field__label">Ne değerleniyor?</label>
                     <select
                       className="select"
-                      value={row.groupId}
+                      value={row.serviceAlias ?? '__spk'}
                       onChange={(e) => {
-                        const g = tariff.groups.find((x) => x.id === e.target.value);
-                        updateRow(row.id, { groupId: e.target.value, subtypeId: g?.subtypes[0]?.id ?? '' });
+                        if (e.target.value === '__spk') {
+                          updateRow(row.id, { serviceAlias: undefined });
+                          return;
+                        }
+                        const a = findAliasByName(serviceAliases, e.target.value);
+                        if (a) updateRow(row.id, { serviceAlias: a.name, groupId: a.groupId, subtypeId: a.subtypeId });
                       }}
                     >
-                      {tariff.groups.map((g) => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
+                      {serviceAliases.map((a) => (
+                        <option key={a.name} value={a.name}>{a.name}</option>
                       ))}
+                      <option value="__spk">Diğer — SPK grubuyla seç…</option>
                     </select>
                   </div>
                   <div className="field">
                     <label className="field__label">Adet</label>
-                    <input className="input" type="number" min={1} value={row.count} onChange={(e) => updateRow(row.id, { count: Math.max(1, Number(e.target.value)) })} />
+                    <input className="input" type="number" inputMode="numeric" min={1} value={row.count} onChange={(e) => updateRow(row.id, { count: Math.max(1, Number(e.target.value)) })} />
                   </div>
                 </div>
 
-                <div className="property-row-split">
-                  <div className="field">
-                    <label className="field__label">Tür</label>
-                    <select className="select" value={row.subtypeId} onChange={(e) => updateRow(row.id, { subtypeId: e.target.value })}>
-                      {group?.subtypes.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                {!row.serviceAlias && (
+                  <div className="property-row-split">
+                    <div className="field">
+                      <label className="field__label">Grup</label>
+                      <select
+                        className="select"
+                        value={row.groupId}
+                        onChange={(e) => {
+                          const g = tariff.groups.find((x) => x.id === e.target.value);
+                          updateRow(row.id, { groupId: e.target.value, subtypeId: g?.subtypes[0]?.id ?? '' });
+                        }}
+                      >
+                        {tariff.groups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label className="field__label">Tür</label>
+                      <select className="select" value={row.subtypeId} onChange={(e) => updateRow(row.id, { subtypeId: e.target.value })}>
+                        {group?.subtypes.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="field">
-                    <label className="field__label">Alan (m²)</label>
-                    <input className="input" type="number" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined })} />
-                  </div>
+                )}
+
+                <div className="field">
+                  <label className="field__label">Alan (m²)</label>
+                  <input className="input" type="number" inputMode="decimal" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined })} />
                 </div>
 
                 {bulkEligible && (
@@ -320,7 +354,7 @@ export function MultiProposalPage() {
                 {row.municipalityFeeSource === 'manual' && (
                   <div className="field">
                     <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
-                    <input className="input" type="number" min={0} value={row.municipalityFee} onChange={(e) => updateRow(row.id, { municipalityFee: Number(e.target.value) })} />
+                    <input className="input" type="number" inputMode="decimal" min={0} value={row.municipalityFee} onChange={(e) => updateRow(row.id, { municipalityFee: Number(e.target.value) })} />
                   </div>
                 )}
 
@@ -352,6 +386,7 @@ export function MultiProposalPage() {
               <input
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 value={rowEffectiveAmount(row, comp)}
                 onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value) })}
@@ -367,6 +402,18 @@ export function MultiProposalPage() {
           </div>
         );
       })}
+
+      {findCrossRowIssues(rows).map((issue) => (
+        <div key={issue.rowIds.join('-')} className="warning-banner" style={{ alignItems: 'center' }}>
+          <AlertIcon width={18} height={18} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{issue.message}</span>
+          {issue.canMerge && (
+            <button type="button" className="btn btn--gold btn--sm" style={{ flexShrink: 0 }} onClick={() => { setRows((prev) => mergeRows(prev, issue.rowIds)); setSaved(false); }}>
+              Birleştir
+            </button>
+          )}
+        </div>
+      ))}
 
       <div className="btn-row">
         <button type="button" className="btn btn--secondary btn--block" onClick={addRow}>+ Satır Ekle</button>
@@ -485,6 +532,18 @@ export function MultiProposalPage() {
             </div>
           </div>
         </>
+      )}
+
+      {pricing && !pendingAction && (
+        <div className="summary-bar">
+          <div>
+            <div className="summary-bar__label">Genel Toplam (KDV Dahil)</div>
+            <div className="summary-bar__amount">{formatTL(pricing.grandTotal)}</div>
+          </div>
+          <button type="button" className="btn btn--gold" onClick={() => setPendingAction('pdf-download')}>
+            <DownloadIcon width={18} height={18} /> Teklif PDF
+          </button>
+        </div>
       )}
 
       {pendingAction && pricing && (

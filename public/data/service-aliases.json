@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "note": "Hizmet türü takma adları: kullanıcıya ve müşteriye gösterilen sade adlar. Hesaplama daima groupId/subtypeId ile SPK tarifesine göre yapılır. Yeni ad eklemek kod değişikliği gerektirmez.",
+  "aliases": [
+    { "name": "Daire (Konut)", "documentName": "Daire", "groupId": "G2", "subtypeId": "G2-T1" },
+    { "name": "Dükkan", "documentName": "Dükkan", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Arsa", "documentName": "Arsa", "groupId": "G1", "subtypeId": "G1-T2" },
+    { "name": "Ofis / Büro", "documentName": "Ofis", "groupId": "G2", "subtypeId": "G2-T1" },
+    { "name": "Tarla / Bağ / Bahçe", "documentName": "Tarla", "groupId": "G1", "subtypeId": "G1-T1" },
+    { "name": "Müstakil Ev", "documentName": "Müstakil Ev", "groupId": "G2", "subtypeId": "G2-T2" },
+    { "name": "Otel", "documentName": "Otel", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Motel / Pansiyon", "documentName": "Konaklama Tesisi", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Plaza / İş Merkezi", "documentName": "Plaza", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "AVM", "documentName": "Alışveriş Merkezi", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Hastane / Sağlık Tesisi", "documentName": "Sağlık Tesisi", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Okul", "documentName": "Okul", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Spor Tesisi", "documentName": "Spor Tesisi", "groupId": "G5", "subtypeId": "G5-T1" },
+    { "name": "Depo", "documentName": "Depo", "groupId": "G4", "subtypeId": "G4-T1" },
+    { "name": "Fabrika", "documentName": "Fabrika", "groupId": "G4", "subtypeId": "G4-T1" },
+    { "name": "İmalathane / Atölye", "documentName": "İmalathane", "groupId": "G4", "subtypeId": "G4-T1" },
+    { "name": "Sera / Çiftlik", "documentName": "Zirai Tesis", "groupId": "G4", "subtypeId": "G4-T1" },
+    { "name": "Akaryakıt İstasyonu", "documentName": "Akaryakıt İstasyonu", "groupId": "G3", "subtypeId": "G3-T1" },
+    { "name": "Yalı / Boğaziçi Taşınmazı", "documentName": "Yalı", "groupId": "G10", "subtypeId": "G10-T1" },
+    { "name": "Tescilli Kültür Varlığı", "documentName": "Tescilli Taşınmaz", "groupId": "G10", "subtypeId": "G10-T2" }
+  ]
+}

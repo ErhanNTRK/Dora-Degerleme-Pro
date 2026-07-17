@@ -759,3 +759,41 @@
   background: var(--color-amber-100);
   color: #6B4A0F;
 }
+
+/* ---------- Yapışkan teklif özeti (Çoklu Teklif, mobil öncelikli) ---------- */
+.summary-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 16px rgba(15, 42, 71, 0.08);
+}
+
+.summary-bar__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.summary-bar__amount {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-navy-800);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme='dark'] .summary-bar__amount {
+  color: var(--color-amber-400);
+}

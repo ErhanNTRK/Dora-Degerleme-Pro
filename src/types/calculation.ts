@@ -19,6 +19,8 @@ export interface PropertyInput {
 
   // Aşağıdaki alanlar tamamen isteğe bağlıdır, hesaplamayı ETKİLEMEZ; yalnızca Teklif Yazısı/PDF
   // içinde dolu olanlar gösterilir. İl/İlçe zaten rapor genelinde seçildiği için burada tutulmaz.
+  /** Görünüm katmanı: kullanıcının seçtiği sade hizmet adı (hesaplamayı etkilemez). */
+  serviceAlias?: string;
   mahalle?: string;
   ada?: string;
   parsel?: string;

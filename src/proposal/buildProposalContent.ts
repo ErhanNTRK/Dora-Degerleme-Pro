@@ -2,6 +2,7 @@ import type { CalculationResult } from '../types/calculation';
 import type { CompanyProfile, CustomerInfo } from '../types/profile';
 import { formatTL } from '../utils/format';
 import { amountToTurkishWords } from '../utils/turkishNumberToWords';
+import { findAliasByName, type ServiceAlias } from '../types/serviceAliases';
 
 export interface ProposalPricing {
   /** Kullanıcının manuel girdiği/değiştirdiği, müşteriye sunulacak hizmet bedeli. */
@@ -85,10 +86,14 @@ export interface ProposalContentOptions {
  *  rawProperties verilirse doldurulmuş konum bilgileri (mahalle/ada/parsel) satıra eklenir. */
 export function buildServiceLines(
   breakdowns: CalculationResult['propertyBreakdowns'],
-  rawProperties: Array<{ id: string; mahalle?: string; ada?: string; parsel?: string; bagimsizBolum?: string }> = []
+  rawProperties: Array<{ id: string; mahalle?: string; ada?: string; parsel?: string; bagimsizBolum?: string; serviceAlias?: string }> = [],
+  aliases: ServiceAlias[] = []
 ): string[] {
   return breakdowns.map((b) => {
-    const name = `${b.groupName} — ${b.subtypeName}`;
+    const rawForAlias = rawProperties.find((r) => r.id === b.propertyId);
+    const alias = rawForAlias?.serviceAlias ? findAliasByName(aliases, rawForAlias.serviceAlias) : undefined;
+    // Müşteri SPK kategori adlarını değil gerçek hizmet adını görür ("Dükkan Değerlemesi").
+    const name = alias ? `${alias.documentName} Değerlemesi` : `${b.groupName} — ${b.subtypeName}`;
     const area = b.area ? ` (${b.area.toLocaleString('tr-TR')} m²)` : '';
     const raw = rawProperties.find((r) => r.id === b.propertyId);
     const locParts: string[] = [];
