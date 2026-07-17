@@ -1,0 +1,48 @@
+import { Link } from 'react-router-dom';
+import { CalculatorIcon, HistoryIcon, BuildingIcon, SettingsIcon } from '../components/icons';
+
+export function HomePage() {
+  return (
+    <div>
+      <div className="page__header">
+        <span className="page__eyebrow">Dora Gayrimenkul Değerleme A.Ş.</span>
+        <h1 className="page__title">DORA DEĞERLEME PRO</h1>
+        <p className="page__desc">Profesyonel Değerleme ve Teklif Yönetim Sistemi</p>
+      </div>
+
+      <div className="menu-grid">
+        <Link to="/hesapla" className="menu-card menu-card--primary">
+          <div className="menu-card__icon"><CalculatorIcon /></div>
+          <div>
+            <div className="menu-card__title">Yeni Hesaplama</div>
+            <div className="menu-card__desc">Taşınmaz bilgilerini girerek ücret hesapla</div>
+          </div>
+        </Link>
+
+        <Link to="/gecmis" className="menu-card">
+          <div className="menu-card__icon"><HistoryIcon /></div>
+          <div>
+            <div className="menu-card__title">Hesap Geçmişi</div>
+            <div className="menu-card__desc">Geçmiş hesaplamaları görüntüle</div>
+          </div>
+        </Link>
+
+        <Link to="/belediye-harclari" className="menu-card">
+          <div className="menu-card__icon"><BuildingIcon /></div>
+          <div>
+            <div className="menu-card__title">Belediye Harçları</div>
+            <div className="menu-card__desc">İl / ilçe bazlı harç kayıtları</div>
+          </div>
+        </Link>
+
+        <Link to="/ayarlar" className="menu-card">
+          <div className="menu-card__icon"><SettingsIcon /></div>
+          <div>
+            <div className="menu-card__title">Ayarlar</div>
+            <div className="menu-card__desc">Sabit ücretler ve KDV oranı</div>
+          </div>
+        </Link>
+      </div>
+    </div>
+  );
+}

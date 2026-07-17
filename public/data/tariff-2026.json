@@ -1,0 +1,294 @@
+{
+  "tariffId": "tariff-2026",
+  "tariffYear": 2026,
+  "effectiveDate": "2026-01-01",
+  "source": "Resmî Gazete, 31.12.2025 Çarşamba, Sayı: 33124 (6. Mükerrer) — Sermaye Piyasası Kurulu Karar No: 68/2443, Karar Tarihi: 30.12.2025",
+  "currency": "TRY",
+  "vatRateDefaultPercent": 20,
+
+  "standardFees": {
+    "titleDeedFeePerDeed": { "amount": 307, "label": "Tapu Harcı", "unit": "tapu başına", "editable": true },
+    "infoCenterFeePerReport": { "amount": 176, "label": "Gayrimenkul Bilgi Merkezi Payı", "unit": "rapor başına (1 kez)", "editable": true, "legalBasis": "Esaslar madde 3" },
+    "unionFeePerReport": { "amount": 125, "label": "TDUB Birlik Payı", "unit": "rapor başına (1 kez)", "editable": true, "legalBasis": "Esaslar madde 3" },
+    "transportFeePerReport": { "amount": 2645.06, "label": "Ulaşım Bedeli", "unit": "rapor başına (1 kez)", "editable": true }
+  },
+
+  "groups": [
+    {
+      "id": "G1",
+      "code": 1,
+      "name": "Arsalar ve Tarım Alanları",
+      "description": "İmarlı veya imarsız arsalar ve tarım alanları",
+      "areaUnit": "m2",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G1-T1",
+          "name": "Bağ, bahçe, tarla, tarım alanı, özel orman vb.",
+          "brackets": [
+            { "min": 1, "max": 20000, "fee": 17568 },
+            { "min": 20001, "max": 100000, "fee": 20232 },
+            { "min": 100001, "max": null, "fee": 24051 }
+          ]
+        },
+        {
+          "id": "G1-T2",
+          "name": "Arsa",
+          "brackets": [
+            { "min": 1, "max": 1000, "fee": 22479 },
+            { "min": 1001, "max": 5000, "fee": 26925 },
+            { "min": 5001, "max": 25000, "fee": 35772 },
+            { "min": 25001, "max": null, "fee": 42120 }
+          ]
+        }
+      ],
+      "bulkValuation": {
+        "eligible": true,
+        "ruleId": "BULK-G1",
+        "legalBasis": "Tarife 6. Grup, 1. madde",
+        "description": "1. Gruptaki taşınmazlardan birden fazlasının aynı değerleme raporuna konu olması ve aynı mahalle/köy sınırları içerisinde yer alması",
+        "condition": "sameReport_sameNeighborhoodOrVillage",
+        "largestParcelFullFee": true,
+        "othersFeePercentOfOwnBracket": 20,
+        "propertyCountFlatFeeThreshold": {
+          "note": "Kullanıcı onayı (2026-07-09): Tarifenin 2. sayfasındaki '201 ve üzeri → 511.500 TL' satırı hem 1. hem 2. madde için geçerli tavan/sabit ücret olarak uygulanacaktır.",
+          "minPropertyCount": 201,
+          "flatFee": 511500
+        }
+      }
+    },
+    {
+      "id": "G2",
+      "code": 2,
+      "name": "Konut, Ofis ve Bürolar",
+      "description": "Bağımsız bölüm niteliği kazanmış veya kazanmamış konut, ofis, büro",
+      "areaUnit": "m2",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G2-T1",
+          "name": "Bağımsız bölüm niteliği kazanmış konut, ofis veya büro",
+          "brackets": [
+            { "min": 1, "max": 149, "fee": 16500 },
+            { "min": 150, "max": 250, "fee": 17622 },
+            { "min": 251, "max": 500, "fee": 20217 },
+            { "min": 501, "max": 1000, "fee": 23946 },
+            { "min": 1001, "max": 5000, "fee": 35187 },
+            { "min": 5001, "max": null, "fee": 55569 }
+          ]
+        },
+        {
+          "id": "G2-T2",
+          "name": "Bağımsız bölüm niteliği kazanmamış müstakil yapılar (köy ve kırsal mahalle hariç)",
+          "baseSubtypeRef": "G2-T1",
+          "surchargeMultiplier": 1.10,
+          "surchargeNote": "Bağımsız bölüm niteliği kazanmış konut için belirlenen ücretler %10 artırılarak uygulanır"
+        }
+      ],
+      "bulkValuation": {
+        "eligible": true,
+        "ruleId": "BULK-G2",
+        "legalBasis": "Tarife 6. Grup, 2. madde",
+        "description": "2. Gruptaki taşınmazlardan, aynı değerleme raporuna konu olan, aynı tarihte ve tek seferde değerleme çalışması yapılan aynı parsel üzerindeki birden fazla bağımsız taşınmazın değerlemesi",
+        "condition": "sameReport_sameDate_sameParcel",
+        "minPropertyCount": 2,
+        "maxPropertyCountForPercentRule": 200,
+        "largestParcelFullFee": true,
+        "othersFeePercentOfOwnBracket": 15,
+        "propertyCountFlatFeeThreshold": {
+          "note": "Kullanıcı onayı (2026-07-09): '201 ve üzeri → 511.500 TL' satırı hem 1. hem 2. madde için geçerli tavan/sabit ücret olarak uygulanacaktır.",
+          "minPropertyCount": 201,
+          "flatFee": 511500
+        }
+      }
+    },
+    {
+      "id": "G3",
+      "code": 3,
+      "name": "Enerji ve Akaryakıt Tesisleri",
+      "areaUnit": "n/a",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G3-T1",
+          "name": "Akaryakıt istasyonu",
+          "brackets": [ { "min": null, "max": null, "fee": 97821, "label": "Tamamı" } ]
+        },
+        {
+          "id": "G3-T2",
+          "name": "Rafineri, akaryakıt depolama tesisleri, diğer enerji tesisleri",
+          "manualFeeRequired": true,
+          "manualFeeReason": "Tarifede ücret belirlenmemiştir. Kullanıcı onayı (2026-07-09): bu alt tür seçilebilir olacak, ücret alanı zorunlu manuel giriş olarak sunulacak ve kullanıcıya uyarı gösterilecek.",
+          "warningMessage": "Bu taşınmaz türü için Resmî Gazete'de yayımlanan tarifede asgari ücret belirlenmemiştir. Lütfen ücreti manuel olarak giriniz."
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G4",
+      "code": 4,
+      "name": "Üretim, Depolama, Zirai ve Sınai Nitelikli Yapılar",
+      "areaUnit": "m2",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G4-T1",
+          "name": "İmalathane, atölye, depo, hangar yapıları, fabrika, sera, küçük ve büyükbaş hayvan ve tavuk çiftlikleri vb.",
+          "brackets": [
+            { "min": 1, "max": 250, "fee": 16197 },
+            { "min": 251, "max": 500, "fee": 19878 },
+            { "min": 501, "max": 2000, "fee": 23598 },
+            { "min": 2001, "max": 10000, "fee": 31437 },
+            { "min": 10001, "max": 25000, "fee": 58965 },
+            { "min": 25001, "max": 100000, "fee": 96492 },
+            { "min": 100001, "max": null, "fee": 135393 }
+          ]
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G5",
+      "code": 5,
+      "name": "Hizmet Amaçlı Kullanılan Gayrimenkuller ve Alışveriş Merkezleri",
+      "areaUnit": "m2",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G5-T1",
+          "name": "Dükkan, plaza, iş merkezi, alışveriş merkezi, hastane, sağlık tesisi, okul, otel, motel, pansiyon, konaklama tesisi, kültür tesisi, kütüphane, sinema salonu, tiyatro salonu, sergi salonu, gösteri merkezleri, düğün salonları, nikâh daireleri, dini ve askeri tesisler, spor tesis ve kompleksi gibi (otoparklar dâhil brüt alan)",
+          "brackets": [
+            { "min": 1, "max": 100, "fee": 17949 },
+            { "min": 101, "max": 500, "fee": 20985 },
+            { "min": 501, "max": 2000, "fee": 33039 },
+            { "min": 2001, "max": 5000, "fee": 45207 },
+            { "min": 5001, "max": 10000, "fee": 58485 },
+            { "min": 10001, "max": 20000, "fee": 98667 },
+            { "min": 20001, "max": 50000, "fee": 201195 },
+            { "min": 50001, "max": 100000, "fee": 245568 },
+            { "min": 100001, "max": null, "fee": 267759 }
+          ]
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G7",
+      "code": 7,
+      "name": "Gayrimenkul Projesi, Gayrimenkule Bağlı Hak ve Fayda Değerlemesi",
+      "areaUnit": "n/a",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G7-T1",
+          "name": "Gayrimenkul projesi, gayrimenkule bağlı hak ve fayda değerlemesi",
+          "manualFeeRequired": true,
+          "manualFeeReason": "Tarifede ücret belirlenmemiştir. Kullanıcı onayı (2026-07-09): zorunlu manuel giriş + uyarı.",
+          "warningMessage": "Bu taşınmaz türü için Resmî Gazete'de yayımlanan tarifede asgari ücret belirlenmemiştir. Lütfen ücreti manuel olarak giriniz."
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G8",
+      "code": 8,
+      "name": "Diğer",
+      "description": "İlgili mevzuatın izin verdiği ölçüde diğer varlıkların değerlemesi",
+      "areaUnit": "n/a",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G8-T1",
+          "name": "Karma yapılar (bütünleyici ve eklenti niteliğindeki makine, ekipman, liman, tersane gibi özellikli varlıklar), tek veya birden fazla parsel üzerine inşa edilmiş farklı nitelikteki yapılardan oluşan karma tesisler",
+          "manualFeeRequired": true,
+          "manualFeeReason": "Tarifede ücret belirlenmemiştir. Kullanıcı onayı (2026-07-09): zorunlu manuel giriş + uyarı.",
+          "warningMessage": "Bu taşınmaz türü için Resmî Gazete'de yayımlanan tarifede asgari ücret belirlenmemiştir. Lütfen ücreti manuel olarak giriniz.",
+          "footnote": "Bu grup kapsamına giren işlerde, değerlemeye konu gayrimenkulün bütünleyici parça ve eklentisi niteliğindeki varlıklar varsa, bunların değerleme ücreti taraflarca belirlenir. Ana gayrimenkulün değerleme ücreti ise işbu tarifede yer alan asgari değerleme ücretinden aşağı olmamak üzere belirlenir."
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G9",
+      "code": 9,
+      "name": "Daha Önce Değerlemesi Yapılan Gayrimenkulün Yeniden Değerlemesi",
+      "areaUnit": "n/a",
+      "manualFeeRequired": false,
+      "isPercentOfBaseGroupFee": true,
+      "subtypes": [
+        {
+          "id": "G9-T1",
+          "name": "İnşa halindeki gayrimenkulün tamamlanma seviyesinin tespiti amacıyla yapılan değerlemeler — İLK RAPOR",
+          "percentOfReferenceGroupFee": 100,
+          "note": "İlk rapor için güncel tarifedeki tam ücret uygulanır."
+        },
+        {
+          "id": "G9-T2",
+          "name": "İnşa halindeki gayrimenkulün tamamlanma seviyesinin tespiti amacıyla yapılan değerlemeler — TAKİP RAPORU (sonraki 1 yıl içinde, bir kereye mahsus)",
+          "percentOfReferenceGroupFee": 30
+        },
+        {
+          "id": "G9-T3",
+          "name": "Daha önce hazırlanmış bir rapora ilişkin, aynı değerleme kuruluşundan rapor tarihini takiben 6 ay içinde bir kereye mahsus talep edilecek revize raporlar",
+          "percentOfReferenceGroupFee": 50
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G10",
+      "code": 10,
+      "name": "Boğaziçi Kanunu Kapsamındaki ve Kültür Varlığı Olarak Tescil Edilmiş Taşınmazlar",
+      "areaUnit": "n/a",
+      "manualFeeRequired": false,
+      "subtypes": [
+        {
+          "id": "G10-T1",
+          "name": "Yenilenmiş olsa dahi 2960 sayılı Boğaziçi Kanunu kapsamındaki yalılar ile aynı kanun kapsamındaki eski eser niteliğindeki gayrimenkuller (Tescilli)",
+          "brackets": [ { "min": null, "max": null, "fee": 85113, "label": "Tamamı" } ]
+        },
+        {
+          "id": "G10-T2",
+          "name": "2960 sayılı Boğaziçi Kanunu kapsamı dışında kalan her türlü kültür varlığı olarak tescil edilmiş taşınmazlar ile eski eserler",
+          "brackets": [ { "min": null, "max": null, "fee": 68094, "label": "Tamamı" } ]
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    },
+    {
+      "id": "G11",
+      "code": 11,
+      "name": "Değer Artış Payına Konu Taşınmazlar (DAP Raporu)",
+      "areaUnit": "m2",
+      "manualFeeRequired": false,
+      "isMultiplierOfBaseGroupFee": true,
+      "subtypes": [
+        {
+          "id": "G11-T1",
+          "name": "Değer artış payı değerleme raporuna konu olan tüm taşınmazlar",
+          "multiplierOfReferenceGroupFee": 5,
+          "note": "Alanı dikkate alınarak taşınmazın tarifede girdiği gruptaki ücretin 5 katı uygulanır. Kullanıcı önce taşınmazın esas grubunu/alt türünü/alanını seçer, hesaplanan taban ücret 5 ile çarpılır."
+        }
+      ],
+      "bulkValuation": { "eligible": false }
+    }
+  ],
+
+  "unresolvedItemsLog": [
+    {
+      "item": "6. Grup 201+ taşınmaz sabit ücreti (511.500 TL) hangi maddeye ait",
+      "resolution": "Kullanıcı (Erhan) 2026-07-09 tarihinde: hem 1. hem 2. madde için geçerli tavan ücret olarak uygulanmasını onayladı.",
+      "resolvedBy": "user_confirmation"
+    },
+    {
+      "item": "3., 7., 8. Grup 'Belirlenmemiştir' ücretleri",
+      "resolution": "Kullanıcı (Erhan) 2026-07-09 tarihinde: bu alt türler seçilebilir kalacak, ücret alanı zorunlu manuel giriş olacak ve kullanıcıya uyarı gösterilecek şeklinde onayladı.",
+      "resolvedBy": "user_confirmation"
+    },
+    {
+      "item": "3. Grup Rafineri/depolama/diğer enerji tesisleri brüt alan sütunu 'Tamamı' olarak belirtilmiş, m2 dilimi yok",
+      "resolution": "Zaten manuel giriş gerektirdiği için alan bazlı dilimlendirme uygulanmıyor.",
+      "resolvedBy": "n/a"
+    }
+  ]
+}

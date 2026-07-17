@@ -1,0 +1,4 @@
+{
+  "note": "Bu dosya belediye harçları için başlangıç (seed) verisidir. İlk sürümde veri boştur; kullanıcı manuel giriş yapar. İleride yönetici paneli üzerinden İl > İlçe > Harç şeklinde veri eklenebilir. Uygulama kodu değişmeden yalnızca bu dosya (veya IndexedDB kaydı) güncellenerek sistem çalışmaya devam eder.",
+  "records": []
+}

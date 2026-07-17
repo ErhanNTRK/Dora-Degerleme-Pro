@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light;
+
+  /* --- Marka renkleri: logo lacivert grisi + amber aksan --- */
+  --color-navy-950: #0A1929;
+  --color-navy-900: #0F2A47;
+  --color-navy-800: #163C63;
+  --color-navy-700: #1F4E7F;
+  --color-navy-600: #2C63A0;
+  --color-navy-100: #E8F0F9;
+  --color-navy-50: #F4F8FC;
+
+  --color-amber-600: #C9862A;
+  --color-amber-500: #E0A03D;
+  --color-amber-400: #F0B94F;
+  --color-amber-100: #FBF0DC;
+
+  --color-white: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F7F9FC;
+  --color-border: #E2E8F0;
+  --color-text-primary: #16232E;
+  --color-text-secondary: #56677A;
+  --color-text-muted: #8B98A8;
+
+  --color-success: #1F8A5F;
+  --color-danger: #C0392B;
+  --color-warning: #B8791A;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 42, 71, 0.06);
+  --shadow-md: 0 4px 16px rgba(15, 42, 71, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 42, 71, 0.12);
+
+  --font-display: 'Söhne', 'Segoe UI', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-navy-950: #060D16;
+  --color-navy-900: #0B1B2E;
+  --color-surface: #0F2036;
+  --color-surface-muted: #0B1626;
+  --color-border: #1E3350;
+  --color-text-primary: #EAF1F9;
+  --color-text-secondary: #A9BBCF;
+  --color-text-muted: #6E839A;
+  --color-navy-100: #16273F;
+  --color-navy-50: #0F2036;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-navy-50);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  transition: background-color 0.25s var(--ease-standard), color 0.25s var(--ease-standard);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--color-amber-400);
+  color: var(--color-navy-950);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
