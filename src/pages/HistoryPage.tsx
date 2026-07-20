@@ -19,7 +19,7 @@ function matchesSearch(query: string, customerName?: string, companyName?: strin
 }
 
 export function HistoryPage() {
-  const [tab, setTab] = useState<Tab>('hesaplamalar');
+  const [tab, setTab] = useState<Tab>('teklifler');
   const [calculations, setCalculations] = useState<SavedCalculation[]>([]);
   const [proposals, setProposals] = useState<SavedProposal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,8 +101,8 @@ export function HistoryPage() {
     <div>
       <div className="page__header">
         <span className="page__eyebrow">Geçmiş</span>
-        <h1 className="page__title">Hesap ve Teklif Geçmişi</h1>
-        <p className="page__desc">Yapılan hesaplamalar ve teklifler bu cihazda saklanır.</p>
+        <h1 className="page__title">Kayıtlı Teklifler</h1>
+        <p className="page__desc">Kayıtlı teklif ve hesaplamalarınız tarih damgasıyla bu cihazda saklanır; dilediğinizde yeniden PDF/Word üretebilirsiniz.</p>
       </div>
 
       <div className="field">
@@ -115,12 +115,14 @@ export function HistoryPage() {
       </div>
 
       <div className="btn-row" style={{ marginBottom: 16 }}>
+<button className={`btn ${tab === 'teklifler' ? 'btn--primary' : 'btn--secondary'} btn--block`} onClick={() => setTab('teklifler')}>
+          Teklifler ({filteredProposals.length})
+        </button>
+
         <button className={`btn ${tab === 'hesaplamalar' ? 'btn--primary' : 'btn--secondary'} btn--block`} onClick={() => setTab('hesaplamalar')}>
           Hesaplamalar ({filteredCalculations.length})
         </button>
-        <button className={`btn ${tab === 'teklifler' ? 'btn--primary' : 'btn--secondary'} btn--block`} onClick={() => setTab('teklifler')}>
-          Teklifler ({filteredProposals.length})
-        </button>
+
       </div>
 
       {loading && <p>Yükleniyor…</p>}

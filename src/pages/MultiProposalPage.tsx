@@ -137,10 +137,25 @@ export function MultiProposalPage() {
     };
   }, [settings]);
 
+  /** İl/ilçe için resmi belediye harcı: number = kayıtlı harç, null = ilçe seçili ama
+   *  veri yok (manuel gerekir), undefined = ilçe seçilmemiş. Her render'da taze okunur. */
+  function officialDistrictFee(province: string, district: string): number | null | undefined {
+    if (!district) return undefined;
+    const d = locationDb?.provinces.find((p) => p.name === province)?.districts.find((x) => x.name === district);
+    return d ? d.fee : null;
+  }
+
+  /** Satırın motora giden harcı: resmi veri varsa DAİMA o; yoksa kullanıcının manuel girdiği. */
+  function resolvedRowFee(row: ProposalRow): number {
+    const official = officialDistrictFee(row.province, row.district);
+    return typeof official === 'number' ? official : row.municipalityFee;
+  }
+
   const computations = useMemo(() => {
     if (!tariff || !calcSettings) return new Map<string, ReturnType<typeof computeRow>>();
-    return new Map(rows.map((r) => [r.id, computeRow(tariff, r, calcSettings)]));
-  }, [rows, tariff, calcSettings]);
+    return new Map(rows.map((r) => [r.id, computeRow(tariff, { ...r, municipalityFee: resolvedRowFee(r) }, calcSettings)]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, tariff, calcSettings, locationDb]);
 
   const feeItems: ServiceFeeItem[] = useMemo(() => {
     if (!tariff) return [];
@@ -209,15 +224,9 @@ export function MultiProposalPage() {
   }
 
   function handleRowDistrictChange(row: ProposalRow, provinceName: string, districtName: string) {
-    const prov = locationDb?.provinces.find((p) => p.name === provinceName);
-    const d = prov?.districts.find((x) => x.name === districtName);
-    if (districtName && d && d.fee !== null) {
-      updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: d.fee, municipalityFeeSource: 'database' });
-    } else if (districtName) {
-      updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: 0, municipalityFeeSource: 'manual' });
-    } else {
-      updateRow(row.id, { province: provinceName, district: '', municipalityFee: 0, municipalityFeeSource: null });
-    }
+    // Harç burada HESAPLANMAZ; resolvedRowFee her an resmi veriye taze bakar.
+    // İl/ilçe değişiminde manuel giriş sıfırlanır ki eski değer yeni ilçeye taşınmasın.
+    updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: 0, municipalityFeeSource: null });
   }
 
   // ---------------- Belge / kayıt ----------------
@@ -415,7 +424,7 @@ export function MultiProposalPage() {
                           inputMode="decimal"
                           min={0}
                           placeholder={`${i + 1}. m²`}
-                          value={row.areas?.[i] ?? row.area ?? ''}
+                          value={(row.areas?.[i] ?? row.area) || ''}
                           onChange={(e) => {
                             const next = Array.from({ length: row.count }, (_, j) => row.areas?.[j] ?? row.area ?? 0);
                             next[i] = e.target.value ? Number(e.target.value) : 0;
@@ -507,16 +516,36 @@ export function MultiProposalPage() {
                       </select>
                     </div>
                   </div>
-                  <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
-                    Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
-                  </span>
-
-                  {row.municipalityFeeSource === 'manual' && (
-                    <div className="field">
-                      <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
-                      <input className="input" type="number" inputMode="decimal" min={0} value={row.municipalityFee} onChange={(e) => updateRow(row.id, { municipalityFee: Number(e.target.value) })} />
-                    </div>
-                  )}
+                  {(() => {
+                    const official = officialDistrictFee(row.province, row.district);
+                    if (official === undefined) {
+                      return (
+                        <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
+                          Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
+                        </span>
+                      );
+                    }
+                    if (typeof official === 'number') {
+                      return (
+                        <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10, color: 'var(--color-success)', fontWeight: 650 }}>
+                          ✓ Belediye harcı resmi veriden alındı: {formatTL(official)}
+                        </span>
+                      );
+                    }
+                    return (
+                      <div className="field">
+                        <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
+                        <input
+                          className="input"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          value={row.municipalityFee || ''}
+                          onChange={(e) => updateRow(row.id, { municipalityFee: e.target.value ? Number(e.target.value) : 0 })}
+                        />
+                      </div>
+                    );
+                  })()}
 
                   <div className="property-row-split">
                     <div className="field">

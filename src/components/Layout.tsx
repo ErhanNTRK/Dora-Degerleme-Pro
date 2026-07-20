@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { HomeIcon, CalculatorIcon, HistoryIcon, SettingsIcon, SunIcon, MoonIcon } from './icons';
+import { HomeIcon, CalculatorIcon, HistoryIcon, ShareIcon, SettingsIcon, SunIcon, MoonIcon } from './icons';
 import { useSettings } from '../context/SettingsContext';
 
 export function Layout() {
@@ -38,11 +38,15 @@ export function Layout() {
         </NavLink>
         <NavLink to="/hesapla" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
           <CalculatorIcon width={20} height={20} />
-          Hesapla
+          Tekli
+        </NavLink>
+        <NavLink to="/coklu-teklif" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
+          <ShareIcon width={20} height={20} />
+          Çoklu
         </NavLink>
         <NavLink to="/gecmis" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
           <HistoryIcon width={20} height={20} />
-          Geçmiş
+          Teklifler
         </NavLink>
         <NavLink to="/ayarlar" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
           <SettingsIcon width={20} height={20} />
