@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "activeYear": 2026,
+  "years": [
+    {
+      "year": 2026,
+      "tariffFile": "tariff-2026.json",
+      "locationFile": "il-ilce-database.json",
+      "note": "2026 SPK Gayrimenkul Değerleme Asgari Ücret Tarifesi"
+    }
+  ]
+}
