@@ -35,6 +35,11 @@ export interface ProposalRow {
   bulkTogether: boolean;
   /** Manuel ücretli alt türler veya kullanıcı ezmesi için satır tutarı (null → motor). */
   manualAmount: number | null;
+  /** Rapor başına ücret anahtarları (varsayılan: açık). Kapatmak yalnızca BU satırın
+   *  maliyetini etkiler; ör. yol ücreti alınmayacak bir iş için kapatılır. */
+  transportFeeEnabled?: boolean;
+  unionFeeEnabled?: boolean;
+  infoCenterFeeEnabled?: boolean;
   /** Kullanıcının seçtiği sade hizmet adı (görünüm katmanı; hesaplamayı etkilemez). */
   serviceAlias?: string;
   /** UI durumu: SPK grup/tür seçicisi açık mı (alias yerine gelişmiş seçim). Kalıcı değildir. */
@@ -105,7 +110,13 @@ export function computeRow(tariff: Tariff, row: ProposalRow, settings: Calculati
   if (row.kind === 'saved') {
     return { subtotal: row.savedSubtotal ?? 0, warnings: [], result: null };
   }
-  const result = calculate(tariff, buildRowCalculationInput(row, settings));
+  const rowSettings: CalculationSettings = {
+    ...settings,
+    transportFeeEnabled: row.transportFeeEnabled ?? settings.transportFeeEnabled,
+    unionFeeEnabled: row.unionFeeEnabled ?? settings.unionFeeEnabled,
+    infoCenterFeeEnabled: row.infoCenterFeeEnabled ?? settings.infoCenterFeeEnabled,
+  };
+  const result = calculate(tariff, buildRowCalculationInput(row, rowSettings));
   return { subtotal: result.subtotal, warnings: result.warnings, result };
 }
 

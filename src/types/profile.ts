@@ -14,6 +14,9 @@ export interface CompanyProfile {
   signatureDataUrl?: string;
   /** Teklif Yazısı ve Teklif PDF'de otomatik yer alan, kullanıcı tarafından değiştirilebilen alt not. */
   proposalFooterNote?: string;
+  /** Yönetici tarafından düzenlenen teklif metni şablonu (yer tutucularla).
+   *  Boş/tanımsız → uygulamanın gömülü varsayılan metni kullanılır. */
+  proposalTemplate?: string[];
 }
 
 export const EMPTY_COMPANY_PROFILE: CompanyProfile = {

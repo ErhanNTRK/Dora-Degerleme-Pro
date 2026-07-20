@@ -5,6 +5,8 @@ import { NewCalculationPage } from './pages/NewCalculationPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { MultiProposalPage } from './pages/MultiProposalPage';
 import { DataManagementPage } from './pages/DataManagementPage';
+import { AdminPage } from './pages/AdminPage';
+import { ProposalTemplatePage } from './pages/ProposalTemplatePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TariffProvider } from './context/TariffContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -26,6 +28,8 @@ function App() {
                   <Route path="/coklu-teklif" element={<MultiProposalPage />} />
                   <Route path="/ayarlar" element={<SettingsPage />} />
                   <Route path="/veri-yonetimi" element={<DataManagementPage />} />
+                  <Route path="/yonetici" element={<AdminPage />} />
+                  <Route path="/teklif-sablonu" element={<ProposalTemplatePage />} />
                 </Route>
               </Routes>
             </BrowserRouter>

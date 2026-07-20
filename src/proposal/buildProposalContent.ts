@@ -126,7 +126,24 @@ function buildSalutation(customer: CustomerInfo): string {
  * (tapu/belediye harcı, TDUB, bilgi merkezi, ulaşım, resmî giderler) HİÇ bahsedilmez.
  * Müşteriye görünen tek tutar seti: Toplam Maliyet + KDV + Genel Toplam.
  */
-export function buildDefaultProposalParagraphs(
+/**
+ * Varsayılan teklif metni ŞABLONU. Yönetici, Teklif Şablonu ekranından bunun yerine
+ * kendi metnini kaydedebilir (company.proposalTemplate). Yer tutucular:
+ * {KONU} {YIL} {TOPLAM} {KDV_ORANI} {GENEL_TOPLAM} {GENEL_TOPLAM_YAZI} {IBAN}
+ * Kural: {IBAN} içeren paragraf, IBAN boşsa TAMAMEN atlanır.
+ */
+export const DEFAULT_PROPOSAL_TEMPLATE: string[] = [
+  'Kurumumuza göstermiş olduğunuz ilgi için teşekkür eder, talebiniz doğrultusunda hazırlanan gayrimenkul değerleme hizmet teklifimizi{KONU} bilgilerinize sunarız.',
+  'Değerleme çalışması; Sermaye Piyasası Kurulu (SPK) düzenlemeleri, Türkiye Değerleme Uzmanları Birliği (TDUB) mevzuatı ve {YIL} Yılı Gayrimenkul Değerleme Asgari Ücret Tarifesi esas alınarak, lisanslı değerleme uzmanlarımız tarafından bağımsızlık, tarafsızlık ve gizlilik ilkeleri çerçevesinde yürütülecektir.',
+  'Çalışma tamamlandığında bulgular, mevzuata uygun olarak hazırlanmış kapsamlı bir değerleme raporu hâlinde tarafınıza teslim edilecektir.',
+  'Hizmet kapsamına ilişkin Toplam Maliyet {TOPLAM} olup, %{KDV_ORANI} KDV ile birlikte Genel Toplam {GENEL_TOPLAM} {GENEL_TOPLAM_YAZI} olarak belirlenmiştir.',
+  'Ödemenizi aşağıdaki IBAN numarası üzerinden gerçekleştirebilirsiniz: {IBAN}',
+  'Teklifimizi değerlendirmeniz için teşekkür eder, sorularınız için bizimle her zaman iletişime geçebileceğinizi belirtmek isteriz.',
+];
+
+/** Şablonu somut değerlerle doldurur; {IBAN} paragrafını IBAN boşken atlar. */
+export function renderProposalTemplate(
+  template: string[],
   customer: CustomerInfo,
   company: CompanyProfile,
   tariffYear: number,
@@ -136,21 +153,30 @@ export function buildDefaultProposalParagraphs(
   if (customer.reportSubject.trim()) subjectPieces.push(customer.reportSubject.trim());
   if (customer.propertySummary.trim()) subjectPieces.push(customer.propertySummary.trim());
   const subjectDetail = subjectPieces.length > 0 ? ` (${subjectPieces.join(' — ')})` : '';
-  const amountInWords = amountToTurkishWords(pricing.grandTotal);
+  const iban = company.iban.trim();
+  const values: Record<string, string> = {
+    KONU: subjectDetail,
+    YIL: String(tariffYear),
+    TOPLAM: formatTL(pricing.offerAmount),
+    KDV_ORANI: String(pricing.vatRatePercent),
+    GENEL_TOPLAM: formatTL(pricing.grandTotal),
+    GENEL_TOPLAM_YAZI: amountToTurkishWords(pricing.grandTotal),
+    IBAN: iban,
+  };
+  return template
+    .filter((para) => !(para.includes('{IBAN}') && !iban))
+    .map((para) => para.replace(/\{([A-Z_]+)\}/g, (m0, key: string) => (key in values ? values[key] : m0)))
+    .filter((para) => para.trim().length > 0);
+}
 
-  const paragraphs = [
-    `Kurumumuza göstermiş olduğunuz ilgi için teşekkür eder, talebiniz doğrultusunda hazırlanan gayrimenkul değerleme hizmet teklifimizi${subjectDetail} bilgilerinize sunarız.`,
-    `Değerleme çalışması; Sermaye Piyasası Kurulu (SPK) düzenlemeleri, Türkiye Değerleme Uzmanları Birliği (TDUB) mevzuatı ve ${tariffYear} Yılı Gayrimenkul Değerleme Asgari Ücret Tarifesi esas alınarak, lisanslı değerleme uzmanlarımız tarafından bağımsızlık, tarafsızlık ve gizlilik ilkeleri çerçevesinde yürütülecektir.`,
-    'Çalışma tamamlandığında bulgular, mevzuata uygun olarak hazırlanmış kapsamlı bir değerleme raporu hâlinde tarafınıza teslim edilecektir.',
-    `Hizmet kapsamına ilişkin Toplam Maliyet ${formatTL(pricing.offerAmount)} olup, %${pricing.vatRatePercent} KDV ile birlikte Genel Toplam ${formatTL(pricing.grandTotal)} ${amountInWords} olarak belirlenmiştir.`,
-  ];
-  // IBAN girilmişse ödeme paragrafı eklenir; girilmemişse HİÇ ödeme cümlesi yazılmaz
-  // (IBAN zorunlu değildir, dolgu cümlesi de basılmaz).
-  if (company.iban.trim()) {
-    paragraphs.push(`Ödemenizi aşağıdaki IBAN numarası üzerinden gerçekleştirebilirsiniz: ${company.iban.trim()}`);
-  }
-  paragraphs.push('Teklifimizi değerlendirmeniz için teşekkür eder, sorularınız için bizimle her zaman iletişime geçebileceğinizi belirtmek isteriz.');
-  return paragraphs;
+export function buildDefaultProposalParagraphs(
+  customer: CustomerInfo,
+  company: CompanyProfile,
+  tariffYear: number,
+  pricing: ProposalPricing
+): string[] {
+  const template = company.proposalTemplate?.length ? company.proposalTemplate : DEFAULT_PROPOSAL_TEMPLATE;
+  return renderProposalTemplate(template, customer, company, tariffYear, pricing);
 }
 
 export function buildProposalContent(

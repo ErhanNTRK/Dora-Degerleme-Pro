@@ -33,6 +33,31 @@ import { DownloadIcon, ShareIcon, WhatsAppIcon, AlertIcon } from '../components/
 type ActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' | 'whatsapp';
 
 /**
+ * Taslak koruması: sahada yarım kalan çoklu teklif, sayfa yenilense / uygulama arka
+ * plana atılsa bile kaybolmaz. Taslak cihazda tutulur; "Taslağı Sil" ile temizlenir.
+ */
+const DRAFT_KEY = 'dora-multi-proposal-draft-v1';
+
+interface ComposerDraft {
+  rows: ProposalRow[];
+  customer: typeof EMPTY_CUSTOMER_INFO;
+  showFeeBreakdown: boolean;
+  customParagraphs: string[] | null;
+}
+
+function readDraft(): ComposerDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as ComposerDraft;
+    return Array.isArray(d.rows) && d.rows.length > 0 ? d : null;
+  } catch {
+    localStorage.removeItem(DRAFT_KEY);
+    return null;
+  }
+}
+
+/**
  * ÇOKLU TEKLİF KOMPOZERİ — tamamen bağımsız akış.
  *
  * Kullanıcı tekli teklif oluşturmak zorunda kalmadan, tek ekranda istediği kadar
@@ -47,10 +72,12 @@ export function MultiProposalPage() {
   const { profile: company } = useCompanyProfile();
   const { locationDb } = useLocationDb();
 
-  const [rows, setRows] = useState<ProposalRow[]>([]);
-  const [customer, setCustomer] = useState({ ...EMPTY_CUSTOMER_INFO });
-  const [showFeeBreakdown, setShowFeeBreakdown] = useState(true);
-  const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(null);
+  const [draft] = useState<ComposerDraft | null>(() => readDraft());
+  const [rows, setRows] = useState<ProposalRow[]>(draft?.rows ?? []);
+  const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
+  const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
+  const [draftRestored, setDraftRestored] = useState(draft !== null);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -65,6 +92,27 @@ export function MultiProposalPage() {
     const first = serviceAliases[0];
     // Varsayılan: en yaygın hizmet türü (listenin ilki) — sahada en az dokunuş.
     return first ? { ...base, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : base;
+  }
+
+  // Otomatik taslak: her anlamlı değişiklikte cihaza yazılır (~anlık, veri küçük).
+  useEffect(() => {
+    if (rows.length === 0) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs } satisfies ComposerDraft));
+    } catch {
+      /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
+    }
+  }, [rows, customer, showFeeBreakdown, customParagraphs]);
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftRestored(false);
+    if (tariff) {
+      setRows([newRow()]);
+      setCustomer({ ...EMPTY_CUSTOMER_INFO });
+      setCustomParagraphs(null);
+      setSaved(false);
+    }
   }
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
@@ -228,16 +276,33 @@ export function MultiProposalPage() {
         </p>
       </div>
 
+      {draftRestored && (
+        <div className="warning-banner" style={{ alignItems: 'center', background: 'var(--color-navy-100)', borderColor: 'var(--color-navy-600)', color: 'var(--color-navy-800)' }}>
+          <span style={{ flex: 1 }}>Yarım kalan teklif taslağınız geri yüklendi.</span>
+          <button type="button" className="btn btn--secondary btn--sm" style={{ flexShrink: 0 }} onClick={clearDraft}>
+            Taslağı Sil, Yeni Başla
+          </button>
+        </div>
+      )}
+
       {/* ---------------- Rapor satırları ---------------- */}
       {rows.map((row, idx) => {
         const comp = computations.get(row.id) ?? { subtotal: 0, warnings: [], result: null };
         const group = tariff.groups.find((g) => g.id === row.groupId);
         const districts = provinceOptions.find((p) => p.name === row.province)?.districts ?? [];
         const bulkEligible = (row.groupId === 'G1' || row.groupId === 'G2') && row.count > 1;
+        const effAmount = rowEffectiveAmount(row, comp);
+        const locSummary = row.district ? `${row.province} / ${row.district}` : 'Konum seçilmedi';
         return (
           <div key={row.id} className="property-card">
+            {/* Başlık: numara + tutar her an görünür + sırala/sil */}
             <div className="property-card__header">
-              <span className="property-card__badge">{idx + 1}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="property-card__badge">{idx + 1}</span>
+                <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                  {formatTL(effAmount)}{row.manualAmount !== null && ' ✎'}
+                </span>
+              </div>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={() => moveRow(row.id, -1)} disabled={idx === 0} aria-label="Yukarı taşı">↑</button>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={() => moveRow(row.id, 1)} disabled={idx === rows.length - 1} aria-label="Aşağı taşı">↓</button>
@@ -247,17 +312,17 @@ export function MultiProposalPage() {
               </div>
             </div>
 
-            <div className="field">
-              <label className="field__label">Satır Adı (belgede görünecek — isteğe bağlı)</label>
-              <input className="input" value={row.label} placeholder={rowDocumentLabel(row, tariff)} onChange={(e) => updateRow(row.id, { label: e.target.value })} />
-            </div>
-
             {row.kind === 'saved' ? (
               <p className="field__hint">
-                Kayıtlı hesaplamadan aktarıldı: <strong>{row.savedTitle}</strong> — Toplam Maliyet {formatTL(row.savedSubtotal ?? 0)}
+                Kayıtlı hesaplamadan aktarıldı: <strong>{row.savedTitle}</strong>
               </p>
             ) : (
               <>
+                {/* Eğitici tek satır: bu satır TEK rapordur */}
+                <p className="field__hint" style={{ marginBottom: 8 }}>
+                  Tek rapor · Tapu ×{Math.max(1, row.count)} · Diğer rapor harçları 1 kez
+                </p>
+
                 <div className="property-row-split">
                   <div className="field">
                     <label className="field__label">Ne değerleniyor?</label>
@@ -281,11 +346,27 @@ export function MultiProposalPage() {
                   </div>
                   <div className="field">
                     <label className="field__label">Adet</label>
-                    <input className="input" type="number" inputMode="numeric" min={1} value={row.count} onChange={(e) => {
-                      const count = Math.max(1, Number(e.target.value));
-                      const areas = row.areas ? Array.from({ length: count }, (_, j) => row.areas![j] ?? row.areas![row.areas!.length - 1] ?? 0) : undefined;
-                      updateRow(row.id, { count, areas: count === 1 ? undefined : areas, area: count === 1 ? (row.areas?.[0] ?? row.area) : row.area });
-                    }} />
+                    <input
+                      className="input"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      value={row.count === 0 ? '' : row.count}
+                      onChange={(e) => {
+                        // Silme anında alan boş kalabilmeli (0 = geçici boş durum); aksi hâlde
+                        // "1'i sil, 2 yaz" yapılamaz — kural onBlur'da uygulanır.
+                        const raw = e.target.value;
+                        const count = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0));
+                        const areas =
+                          row.areas && count >= 1
+                            ? Array.from({ length: count }, (_, j) => row.areas![j] ?? row.areas![row.areas!.length - 1] ?? 0)
+                            : row.areas;
+                        updateRow(row.id, { count, areas: count === 1 ? undefined : areas, area: count === 1 ? (row.areas?.[0] ?? row.area) : row.area });
+                      }}
+                      onBlur={() => {
+                        if (row.count < 1) updateRow(row.id, { count: 1 });
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -317,14 +398,14 @@ export function MultiProposalPage() {
                   </div>
                 )}
 
-                {row.count === 1 ? (
+                {row.count <= 1 ? (
                   <div className="field">
                     <label className="field__label">Alan (m²)</label>
                     <input className="input" type="number" inputMode="decimal" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined, areas: undefined })} />
                   </div>
                 ) : (
                   <div className="field">
-                    <label className="field__label">Taşınmaz Alanları (m²)</label>
+                    <label className="field__label">Taşınmaz Alanları (m²) — her taşınmazın kendi alanı</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                       {Array.from({ length: row.count }, (_, i) => (
                         <input
@@ -343,10 +424,6 @@ export function MultiProposalPage() {
                         />
                       ))}
                     </div>
-                    <span className="field__hint">
-                      Her taşınmazın kendi alanını girin (ör. aynı binadaki 50 / 155 / 275 m² üç daire).
-                      Hepsi TEK RAPOR sayılır; harçlar bir kez alınır, dilim ücretleri taşınmaz başına bulunur.
-                    </span>
                   </div>
                 )}
 
@@ -354,7 +431,7 @@ export function MultiProposalPage() {
                   <div className="checkbox-row">
                     <div>
                       <div className="checkbox-row__label">{row.groupId === 'G1' ? 'Aynı mahalle/köy sınırlarında' : 'Aynı parsel üzerinde'}</div>
-                      <div className="checkbox-row__value">SPK toplu değerleme indirimi uygulanır (en büyüğü tam, diğerleri %{row.groupId === 'G1' ? 20 : 15}).</div>
+                      <div className="checkbox-row__value">SPK toplu değerleme: en büyüğü tam, diğerleri %{row.groupId === 'G1' ? 20 : 15}.</div>
                     </div>
                     <button type="button" className="switch" data-checked={row.bulkTogether} onClick={() => updateRow(row.id, { bulkTogether: !row.bulkTogether })} aria-label="Toplu değerleme">
                       <span className="switch__thumb" />
@@ -362,75 +439,125 @@ export function MultiProposalPage() {
                   </div>
                 )}
 
-                <div className="property-row-split">
-                  <div className="field">
-                    <label className="field__label">İl</label>
-                    <select className="select" value={row.province} onChange={(e) => handleRowDistrictChange(row, e.target.value, '')}>
-                      <option value="">Seçiniz</option>
-                      {provinceOptions.map((p) => (
-                        <option key={p.name} value={p.name}>{p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label className="field__label">İlçe</label>
-                    <select className="select" value={row.district} disabled={!row.province} onChange={(e) => handleRowDistrictChange(row, row.province, e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {districts.map((d) => (
-                        <option key={d.name} value={d.name}>{d.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {row.municipalityFeeSource === 'manual' && (
-                  <div className="field">
-                    <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
-                    <input className="input" type="number" inputMode="decimal" min={0} value={row.municipalityFee} onChange={(e) => updateRow(row.id, { municipalityFee: Number(e.target.value) })} />
-                  </div>
-                )}
-
-                <div className="property-row-split">
-                  <div className="field">
-                    <label className="field__label">Mahalle (isteğe bağlı)</label>
-                    <input className="input" value={row.mahalle ?? ''} onChange={(e) => updateRow(row.id, { mahalle: e.target.value || undefined })} />
-                  </div>
-                  <div className="field">
-                    <label className="field__label">Ada / Parsel</label>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input className="input" placeholder="Ada" value={row.ada ?? ''} onChange={(e) => updateRow(row.id, { ada: e.target.value || undefined })} />
-                      <input className="input" placeholder="Parsel" value={row.parsel ?? ''} onChange={(e) => updateRow(row.id, { parsel: e.target.value || undefined })} />
-                    </div>
-                  </div>
-                </div>
-
                 {comp.warnings.length > 0 && row.manualAmount === null && (
                   <div className="warning-banner">
                     <AlertIcon width={18} height={18} />
-                    <span>{comp.warnings[0]} Gerekirse aşağıdan satır tutarını elle girin.</span>
+                    <span>{comp.warnings[0]} Gerekirse "Konum ve Ayrıntılar"dan satır tutarını elle girin.</span>
                   </div>
                 )}
               </>
             )}
 
-            <div className="field">
-              <label className="field__label">Satır Tutarı (Toplam Maliyet)</label>
-              <input
-                className="input"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                value={rowEffectiveAmount(row, comp)}
-                onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value) })}
-              />
-              <span className="field__hint">
-                {row.manualAmount !== null ? (
-                  <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
-                ) : (
-                  'Motor tarafından rapor başına harçlar dahil otomatik hesaplandı; değiştirmeniz motoru etkilemez.'
-                )}
-              </span>
-            </div>
+            {/* İkincil alanlar: katlanır — telefonda ana akışı kısa tutar */}
+            <Accordion title={`Konum ve Ayrıntılar — ${locSummary}`} defaultOpen={false}>
+              {row.kind === 'custom' && (
+                <>
+                  {comp.result && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div className="section-title" style={{ marginBottom: 6 }}>Harç Dökümü (ofis içi — belgeye yansımaz)</div>
+                      <div className="result-row"><span className="result-row__label">Asgari Hizmet Bedeli</span><span className="result-row__value">{formatTL(comp.result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0))}</span></div>
+                      <div className="result-row"><span className="result-row__label">Tapu Harcı (×{Math.max(1, row.count)})</span><span className="result-row__value">{formatTL(comp.result.titleDeedFeeTotal)}</span></div>
+                      {comp.result.municipalityFee > 0 && (
+                        <div className="result-row"><span className="result-row__label">Belediye Harcı</span><span className="result-row__value">{formatTL(comp.result.municipalityFee)}</span></div>
+                      )}
+                      {([
+                        ['Ulaşım / Yol Ücreti', 'transportFeeEnabled', comp.result.transportFee] as const,
+                        ['TDUB Birlik Payı', 'unionFeeEnabled', comp.result.unionFee] as const,
+                        ['Bilgi Merkezi Payı', 'infoCenterFeeEnabled', comp.result.infoCenterFee] as const,
+                      ]).map(([label, key, amount]) => (
+                        <div key={key} className="result-row" style={{ alignItems: 'center' }}>
+                          <span className="result-row__label">{label}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="result-row__value" style={{ opacity: (row[key] ?? true) ? 1 : 0.4 }}>{formatTL(amount)}</span>
+                            <button
+                              type="button"
+                              className="switch"
+                              data-checked={row[key] ?? true}
+                              onClick={() => updateRow(row.id, { [key]: !(row[key] ?? true), manualAmount: null })}
+                              aria-label={`${label} dahil et`}
+                            >
+                              <span className="switch__thumb" />
+                            </button>
+                          </span>
+                        </div>
+                      ))}
+                      <div className="result-row result-row--total" style={{ fontSize: 14 }}>
+                        <span className="result-row__label">Satır Toplam Maliyeti</span>
+                        <span className="result-row__value">{formatTL(comp.subtotal)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="property-row-split">
+                    <div className="field">
+                      <label className="field__label">İl</label>
+                      <select className="select" value={row.province} onChange={(e) => handleRowDistrictChange(row, e.target.value, '')}>
+                        <option value="">Seçiniz</option>
+                        {provinceOptions.map((p) => (
+                          <option key={p.name} value={p.name}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label className="field__label">İlçe</label>
+                      <select className="select" value={row.district} disabled={!row.province} onChange={(e) => handleRowDistrictChange(row, row.province, e.target.value)}>
+                        <option value="">Seçiniz</option>
+                        {districts.map((d) => (
+                          <option key={d.name} value={d.name}>{d.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
+                    Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
+                  </span>
+
+                  {row.municipalityFeeSource === 'manual' && (
+                    <div className="field">
+                      <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
+                      <input className="input" type="number" inputMode="decimal" min={0} value={row.municipalityFee} onChange={(e) => updateRow(row.id, { municipalityFee: Number(e.target.value) })} />
+                    </div>
+                  )}
+
+                  <div className="property-row-split">
+                    <div className="field">
+                      <label className="field__label">Mahalle</label>
+                      <input className="input" value={row.mahalle ?? ''} onChange={(e) => updateRow(row.id, { mahalle: e.target.value || undefined })} />
+                    </div>
+                    <div className="field">
+                      <label className="field__label">Ada / Parsel</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input className="input" placeholder="Ada" value={row.ada ?? ''} onChange={(e) => updateRow(row.id, { ada: e.target.value || undefined })} />
+                        <input className="input" placeholder="Parsel" value={row.parsel ?? ''} onChange={(e) => updateRow(row.id, { parsel: e.target.value || undefined })} />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="field">
+                <label className="field__label">Satır Adı (belgede görünecek)</label>
+                <input className="input" value={row.label} placeholder={rowDocumentLabel(row, tariff, serviceAliases)} onChange={(e) => updateRow(row.id, { label: e.target.value })} />
+              </div>
+
+              <div className="field">
+                <label className="field__label">Satır Tutarı (Toplam Maliyet)</label>
+                <input
+                  className="input"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={effAmount}
+                  onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value) })}
+                />
+                <span className="field__hint">
+                  {row.manualAmount !== null ? (
+                    <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
+                  ) : (
+                    'Motor tarafından harçlar dahil otomatik hesaplandı; değiştirmeniz motoru etkilemez.'
+                  )}
+                </span>
+              </div>
+            </Accordion>
           </div>
         );
       })}

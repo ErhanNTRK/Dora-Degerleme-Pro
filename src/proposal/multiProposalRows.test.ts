@@ -65,6 +65,17 @@ describe('computeRow — aynı raporda FARKLI alanlı taşınmazlar', () => {
   });
 });
 
+describe('computeRow — satır bazında harç anahtarları', () => {
+  it('ulaşım ücreti kapatılınca yalnızca o satırın maliyetinden düşer', () => {
+    const base = row({ groupId: 'G2', subtypeId: 'G2-T1', area: 100 });
+    const withTransport = computeRow(tariff, base, settings);
+    const without = computeRow(tariff, { ...base, transportFeeEnabled: false }, settings);
+    expect(withTransport.subtotal - without.subtotal).toBeCloseTo(2645.06, 2);
+    expect(without.result!.transportFee).toBe(0);
+    expect(without.result!.unionFee).toBe(125); // diğer harçlar etkilenmez
+  });
+});
+
 describe('rowEffectiveAmount ve rowDocumentLabel', () => {
   it('elle ezme yalnızca müşteri tutarını değiştirir', () => {
     const r = row({ groupId: 'G2', subtypeId: 'G2-T1', area: 100, manualAmount: 25000 });

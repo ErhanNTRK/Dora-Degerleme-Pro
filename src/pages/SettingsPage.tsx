@@ -1,3 +1,5 @@
+import { buildBackup, validateBackup, importBackup, type BackupFile } from '../db/backup';
+import { downloadBlob } from '../utils/share';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useSettings } from '../context/SettingsContext';
@@ -158,16 +160,68 @@ export function SettingsPage() {
         Bu ayarlar yalnızca cihazınızda saklanır.
       </p>
 
+      <BackupCard />
+
       <div className="card" style={{ marginTop: 14 }}>
         <div className="section-title">Yönetici</div>
-        <Link to="/veri-yonetimi" className="btn btn--secondary btn--block" style={{ textDecoration: 'none' }}>
-          Veri Yönetimi — Yıllık Tarife ve Harç Güncelleme
+        <Link to="/yonetici" className="btn btn--secondary btn--block" style={{ textDecoration: 'none' }}>
+          Yönetici Merkezi — Tarife, Harçlar ve Teklif Şablonu
         </Link>
         <p className="field__hint" style={{ marginTop: 8 }}>
-          Yeni yıl SPK tarifesi ve belediye harçları buradan üretilir; repoya yüklendiğinde tüm
-          cihazlara otomatik dağılır.
+          Yıllık tarife/harç güncellemeleri ve teklif metni şablonu tek merkezden yönetilir.
         </p>
       </div>
+    </div>
+  );
+}
+
+
+/** Yedekleme / Geri Yükleme kartı — bulutsuz, cihaz içi tek JSON dosyası. */
+function BackupCard() {
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function handleExport() {
+    const { blob, fileName } = await buildBackup();
+    downloadBlob(blob, fileName);
+    setMessage('Yedek dosyası indirildi. Dosyayı güvenli bir yerde (ör. e-posta/Drive) saklayın.');
+  }
+
+  async function handleImport(file: File | null) {
+    setMessage(null);
+    if (!file) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const error = validateBackup(parsed);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      if (!window.confirm('Yedek geri yüklenecek. Aynı kimlikli kayıtlar yedekteki hâliyle güncellenir; diğer kayıtlarınız korunur. Devam edilsin mi?')) return;
+      const summary = await importBackup(parsed as BackupFile);
+      setMessage(`Geri yükleme tamam: ${summary.calculations} hesaplama, ${summary.proposals} teklif. Sayfa yenileniyor…`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch {
+      setMessage('Dosya okunamadı: geçerli bir JSON değil.');
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="section-title">Yedekleme</div>
+      <p className="field__hint" style={{ marginBottom: 10 }}>
+        Tüm veriler yalnızca bu cihazda tutulur. Telefon kaybına karşı düzenli yedek alın;
+        yeni cihazda "Yedeği Geri Yükle" ile aynen devam edersiniz.
+      </p>
+      <div className="btn-row">
+        <button type="button" className="btn btn--primary btn--block" onClick={handleExport}>
+          Yedek Al (JSON indir)
+        </button>
+      </div>
+      <div className="field" style={{ marginTop: 8 }}>
+        <label className="field__label">Yedeği Geri Yükle</label>
+        <input className="input" type="file" accept="application/json,.json" onChange={(e) => handleImport(e.target.files?.[0] ?? null)} />
+      </div>
+      {message && <p className="field__hint" style={{ marginTop: 8, fontWeight: 650 }}>{message}</p>}
     </div>
   );
 }
