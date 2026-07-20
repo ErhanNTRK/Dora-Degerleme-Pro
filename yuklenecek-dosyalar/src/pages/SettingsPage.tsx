@@ -160,11 +160,12 @@ export function SettingsPage() {
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="section-title">Yönetici</div>
-        <Link to="/yonetici" className="btn btn--secondary btn--block" style={{ textDecoration: 'none' }}>
-          Yönetici Merkezi — Tarife, Harçlar ve Teklif Şablonu
+        <Link to="/veri-yonetimi" className="btn btn--secondary btn--block" style={{ textDecoration: 'none' }}>
+          Veri Yönetimi — Yıllık Tarife ve Harç Güncelleme
         </Link>
         <p className="field__hint" style={{ marginTop: 8 }}>
-          Yıllık tarife/harç güncellemeleri ve teklif metni şablonu tek merkezden yönetilir.
+          Yeni yıl SPK tarifesi ve belediye harçları buradan üretilir; repoya yüklendiğinde tüm
+          cihazlara otomatik dağılır.
         </p>
       </div>
     </div>

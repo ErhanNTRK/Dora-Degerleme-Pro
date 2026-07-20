@@ -7,7 +7,7 @@
  * teklif fiyatlaması yalnızca Teklif Bedeli + KDV'den türetilir.
  */
 import { describe, it, expect } from 'vitest';
-import { computeProposalPricing, buildProposalContent, buildServiceLines, buildDefaultProposalParagraphs, DEFAULT_PROPOSAL_TEMPLATE, renderProposalTemplate } from './buildProposalContent';
+import { computeProposalPricing, buildProposalContent, buildServiceLines } from './buildProposalContent';
 import { EMPTY_COMPANY_PROFILE, EMPTY_CUSTOMER_INFO } from '../types/profile';
 
 describe('computeProposalPricing — bağımsızlık ve yuvarlama', () => {
@@ -53,39 +53,6 @@ describe('buildProposalContent — yeni teklif sistemi davranışları', () => {
     expect(plainText).toContain('Hizmet Kapsamı:');
     expect(plainText).toContain('1. Konutlar — Mesken (120 m²)');
     expect(plainText).toContain('2. Arsalar — Arsa (500 m²)');
-  });
-});
-
-describe('teklif şablonu motoru', () => {
-  const pricing = computeProposalPricing(85000, 20);
-  const customer = { ...EMPTY_CUSTOMER_INFO };
-
-  it('yönetici şablonu varsa varsayılan yerine o kullanılır ve yer tutucular dolar', () => {
-    const company = {
-      ...EMPTY_COMPANY_PROFILE,
-      iban: 'TR11 2222',
-      proposalTemplate: ['Merhaba, {YIL} yılı için teklifimiz {TOPLAM} + %{KDV_ORANI} KDV = {GENEL_TOPLAM}.', 'IBAN: {IBAN}'],
-    };
-    const p = buildDefaultProposalParagraphs(customer, company, 2026, pricing);
-    expect(p).toEqual(['Merhaba, 2026 yılı için teklifimiz 85.000,00 TL + %20 KDV = 102.000,00 TL.', 'IBAN: TR11 2222']);
-  });
-
-  it('{IBAN} paragrafı IBAN boşken şablondan atlanır', () => {
-    const company = { ...EMPTY_COMPANY_PROFILE, iban: '', proposalTemplate: ['Sabit paragraf.', 'Ödeme: {IBAN}'] };
-    expect(buildDefaultProposalParagraphs(customer, company, 2026, pricing)).toEqual(['Sabit paragraf.']);
-  });
-
-  it('bilinmeyen yer tutucu aynen bırakılır (sessiz bozulma yok)', () => {
-    const out = renderProposalTemplate(['Test {BILINMEYEN} kalır.'], customer, { ...EMPTY_COMPANY_PROFILE }, 2026, pricing);
-    expect(out[0]).toBe('Test {BILINMEYEN} kalır.');
-  });
-
-  it('gömülü varsayılan şablon, eski varsayılan metinle birebir aynı çıktıyı üretir', () => {
-    const company = { ...EMPTY_COMPANY_PROFILE, iban: 'TR00 0000' };
-    const rendered = renderProposalTemplate(DEFAULT_PROPOSAL_TEMPLATE, customer, company, 2026, pricing);
-    expect(rendered[0]).toContain('Kurumumuza göstermiş olduğunuz ilgi');
-    expect(rendered[3]).toBe('Hizmet kapsamına ilişkin Toplam Maliyet 85.000,00 TL olup, %20 KDV ile birlikte Genel Toplam 102.000,00 TL (Yüz İki Bin Türk Lirası) olarak belirlenmiştir.');
-    expect(rendered[4]).toBe('Ödemenizi aşağıdaki IBAN numarası üzerinden gerçekleştirebilirsiniz: TR00 0000');
   });
 });
 
