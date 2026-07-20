@@ -98,10 +98,19 @@ export function NewCalculationPage() {
     };
   }, [calcSettings, settings]);
 
+  // Yeni taşınmaz, çokludaki gibi en yaygın hizmetle (alias listesinin ilki) açılır;
+  // böylece tekli ekran da "Ne değerleniyor?" öncelikli çalışır.
+  function defaultPropertyFields() {
+    const a = serviceAliases[0];
+    return a
+      ? { groupId: a.groupId, subtypeId: a.subtypeId, serviceAlias: a.name }
+      : { groupId: tariff?.groups[0]?.id ?? '', subtypeId: tariff?.groups[0]?.subtypes[0]?.id ?? '' };
+  }
+
   function addProperty() {
     setProperties((prev) => [
       ...prev,
-      { id: uid(), groupId: tariff?.groups[0]?.id ?? '', subtypeId: tariff?.groups[0]?.subtypes[0]?.id ?? '', label: `Taşınmaz ${prev.length + 1}` },
+      { id: uid(), ...defaultPropertyFields(), label: `Taşınmaz ${prev.length + 1}` },
     ]);
   }
 
@@ -113,8 +122,9 @@ export function NewCalculationPage() {
     setProperties((prev) =>
       prev.length > 0
         ? prev
-        : [{ id: uid(), groupId: tariff.groups[0]?.id ?? '', subtypeId: tariff.groups[0]?.subtypes[0]?.id ?? '', label: 'Taşınmaz 1' }]
+        : [{ id: uid(), ...defaultPropertyFields(), label: 'Taşınmaz 1' }]
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tariff]);
 
   function updateProperty(id: string, updated: PropertyInput) {

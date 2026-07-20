@@ -45,7 +45,7 @@ export function HomePage() {
       </div>
 
       <p className="field__hint" style={{ textAlign: 'center', marginTop: 18, opacity: 0.7 }}>
-        Sürüm: 2026.07.20-C
+        Sürüm: 2026.07.20-D
       </p>
     </div>
   );

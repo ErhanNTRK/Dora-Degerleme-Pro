@@ -77,7 +77,6 @@ export function MultiProposalPage() {
   const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
   const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
-  const [draftRestored, setDraftRestored] = useState(draft !== null);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -103,17 +102,6 @@ export function MultiProposalPage() {
       /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
     }
   }, [rows, customer, showFeeBreakdown, customParagraphs]);
-
-  function clearDraft() {
-    localStorage.removeItem(DRAFT_KEY);
-    setDraftRestored(false);
-    if (tariff) {
-      setRows([newRow()]);
-      setCustomer({ ...EMPTY_CUSTOMER_INFO });
-      setCustomParagraphs(null);
-      setSaved(false);
-    }
-  }
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
@@ -145,8 +133,12 @@ export function MultiProposalPage() {
     return d ? d.fee : null;
   }
 
-  /** Satırın motora giden harcı: resmi veri varsa DAİMA o; yoksa kullanıcının manuel girdiği. */
+  /** Satırın motora giden harcı: uzman ezmişse o (0 dahil); yoksa resmi veri; o da yoksa
+   *  manuel giriş. Resmi veri VARSAYILANDIR, son söz uzmanındır. */
   function resolvedRowFee(row: ProposalRow): number {
+    if (row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined) {
+      return row.municipalityFeeOverride;
+    }
     const official = officialDistrictFee(row.province, row.district);
     return typeof official === 'number' ? official : row.municipalityFee;
   }
@@ -225,8 +217,8 @@ export function MultiProposalPage() {
 
   function handleRowDistrictChange(row: ProposalRow, provinceName: string, districtName: string) {
     // Harç burada HESAPLANMAZ; resolvedRowFee her an resmi veriye taze bakar.
-    // İl/ilçe değişiminde manuel giriş sıfırlanır ki eski değer yeni ilçeye taşınmasın.
-    updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: 0, municipalityFeeSource: null });
+    // İl/ilçe değişiminde manuel giriş ve ezme sıfırlanır ki eski değer yeni ilçeye taşınmasın.
+    updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: 0, municipalityFeeOverride: undefined, municipalityFeeSource: null });
   }
 
   // ---------------- Belge / kayıt ----------------
@@ -267,6 +259,7 @@ export function MultiProposalPage() {
       offerGrandTotal: pricing.grandTotal,
       contentOptions,
     });
+    localStorage.removeItem(DRAFT_KEY); // kaydedilen teklif taslak olarak geri dönmesin
     setSaved(true);
   }
 
@@ -284,15 +277,6 @@ export function MultiProposalPage() {
           Satır ekleyin, silin, sıralayın — tek belgede profesyonel teklif hazırlayın.
         </p>
       </div>
-
-      {draftRestored && (
-        <div className="warning-banner" style={{ alignItems: 'center', background: 'var(--color-navy-100)', borderColor: 'var(--color-navy-600)', color: 'var(--color-navy-800)' }}>
-          <span style={{ flex: 1 }}>Yarım kalan teklif taslağınız geri yüklendi.</span>
-          <button type="button" className="btn btn--secondary btn--sm" style={{ flexShrink: 0 }} onClick={clearDraft}>
-            Taslağı Sil, Yeni Başla
-          </button>
-        </div>
-      )}
 
       {/* ---------------- Rapor satırları ---------------- */}
       {rows.map((row, idx) => {
@@ -526,10 +510,28 @@ export function MultiProposalPage() {
                       );
                     }
                     if (typeof official === 'number') {
+                      const overridden = row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined;
+                      const shown = overridden ? row.municipalityFeeOverride! : official;
                       return (
-                        <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10, color: 'var(--color-success)', fontWeight: 650 }}>
-                          ✓ Belediye harcı resmi veriden alındı: {formatTL(official)}
-                        </span>
+                        <div className="field">
+                          <label className="field__label">Belediye Harcı (TL)</label>
+                          <input
+                            className="input"
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            value={shown === 0 ? '' : shown}
+                            placeholder="0"
+                            onChange={(e) => updateRow(row.id, { municipalityFeeOverride: e.target.value ? Number(e.target.value) : 0 })}
+                          />
+                          <span className="field__hint">
+                            {overridden ? (
+                              <>Elle değiştirildi (resmi veri: {formatTL(official)}). <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { municipalityFeeOverride: undefined })}>Resmi değere dön</button></>
+                            ) : (
+                              <>✓ Resmi veriden alındı. Zam/muafiyet durumunda üzerine yazabilirsiniz; 0 da geçerlidir.</>
+                            )}
+                          </span>
+                        </div>
                       );
                     }
                     return (

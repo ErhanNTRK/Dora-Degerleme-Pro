@@ -20,6 +20,9 @@ export interface ProposalRow {
   district: string;
   municipalityFee: number;
   municipalityFeeSource: 'database' | 'manual' | null;
+  /** Uzmanın resmi harcı ezmesi (zam geldi / harç alınmayacak vb.). null/undefined → resmi
+   *  veri kullanılır; 0 dahil her sayı geçerli ezmedir. Yalnızca bu satırı etkiler. */
+  municipalityFeeOverride?: number | null;
   // --- custom satır alanları ---
   groupId: string;
   subtypeId: string;
