@@ -33,6 +33,31 @@ import { DownloadIcon, ShareIcon, WhatsAppIcon, AlertIcon } from '../components/
 type ActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' | 'whatsapp';
 
 /**
+ * Taslak koruması: sahada yarım kalan çoklu teklif, sayfa yenilense / uygulama arka
+ * plana atılsa bile kaybolmaz. Taslak cihazda tutulur; "Taslağı Sil" ile temizlenir.
+ */
+const DRAFT_KEY = 'dora-multi-proposal-draft-v1';
+
+interface ComposerDraft {
+  rows: ProposalRow[];
+  customer: typeof EMPTY_CUSTOMER_INFO;
+  showFeeBreakdown: boolean;
+  customParagraphs: string[] | null;
+}
+
+function readDraft(): ComposerDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as ComposerDraft;
+    return Array.isArray(d.rows) && d.rows.length > 0 ? d : null;
+  } catch {
+    localStorage.removeItem(DRAFT_KEY);
+    return null;
+  }
+}
+
+/**
  * ÇOKLU TEKLİF KOMPOZERİ — tamamen bağımsız akış.
  *
  * Kullanıcı tekli teklif oluşturmak zorunda kalmadan, tek ekranda istediği kadar
@@ -47,10 +72,12 @@ export function MultiProposalPage() {
   const { profile: company } = useCompanyProfile();
   const { locationDb } = useLocationDb();
 
-  const [rows, setRows] = useState<ProposalRow[]>([]);
-  const [customer, setCustomer] = useState({ ...EMPTY_CUSTOMER_INFO });
-  const [showFeeBreakdown, setShowFeeBreakdown] = useState(true);
-  const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(null);
+  const [draft] = useState<ComposerDraft | null>(() => readDraft());
+  const [rows, setRows] = useState<ProposalRow[]>(draft?.rows ?? []);
+  const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
+  const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
+  const [draftRestored, setDraftRestored] = useState(draft !== null);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -65,6 +92,27 @@ export function MultiProposalPage() {
     const first = serviceAliases[0];
     // Varsayılan: en yaygın hizmet türü (listenin ilki) — sahada en az dokunuş.
     return first ? { ...base, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : base;
+  }
+
+  // Otomatik taslak: her anlamlı değişiklikte cihaza yazılır (~anlık, veri küçük).
+  useEffect(() => {
+    if (rows.length === 0) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs } satisfies ComposerDraft));
+    } catch {
+      /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
+    }
+  }, [rows, customer, showFeeBreakdown, customParagraphs]);
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftRestored(false);
+    if (tariff) {
+      setRows([newRow()]);
+      setCustomer({ ...EMPTY_CUSTOMER_INFO });
+      setCustomParagraphs(null);
+      setSaved(false);
+    }
   }
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
@@ -227,6 +275,15 @@ export function MultiProposalPage() {
           Satır ekleyin, silin, sıralayın — tek belgede profesyonel teklif hazırlayın.
         </p>
       </div>
+
+      {draftRestored && (
+        <div className="warning-banner" style={{ alignItems: 'center', background: 'var(--color-navy-100)', borderColor: 'var(--color-navy-600)', color: 'var(--color-navy-800)' }}>
+          <span style={{ flex: 1 }}>Yarım kalan teklif taslağınız geri yüklendi.</span>
+          <button type="button" className="btn btn--secondary btn--sm" style={{ flexShrink: 0 }} onClick={clearDraft}>
+            Taslağı Sil, Yeni Başla
+          </button>
+        </div>
+      )}
 
       {/* ---------------- Rapor satırları ---------------- */}
       {rows.map((row, idx) => {
