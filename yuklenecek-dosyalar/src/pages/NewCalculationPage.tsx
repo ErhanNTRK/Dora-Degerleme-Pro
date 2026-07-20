@@ -299,7 +299,7 @@ export function NewCalculationPage() {
   return (
     <div>
       <div className="page__header">
-        <span className="page__eyebrow">Yeni Hesaplama</span>
+        <span className="page__eyebrow">Tek Tapu Teklifi</span>
         <h1 className="page__title">{STEPS[step]}</h1>
       </div>
 
