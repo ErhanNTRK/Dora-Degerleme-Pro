@@ -323,6 +323,7 @@ export function NewCalculationPage() {
         <div>
           {properties.map((p, i) => (
             <PropertyCard
+                serviceAliases={serviceAliases}
               key={p.id}
               tariff={tariff}
               index={i}
