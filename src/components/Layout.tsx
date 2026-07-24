@@ -40,6 +40,10 @@ export function Layout() {
           <CalculatorIcon width={20} height={20} />
           Tekli
         </NavLink>
+        <NavLink to="/toplu-yukleme" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
+          <span className="bottom-nav__icon">📄</span>
+          <span>Excel</span>
+        </NavLink>
         <NavLink to="/coklu-teklif" className={({ isActive }) => `bottom-nav__item${isActive ? ' active' : ''}`}>
           <ShareIcon width={20} height={20} />
           Çoklu

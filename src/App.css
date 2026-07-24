@@ -797,3 +797,21 @@
 [data-theme='dark'] .summary-bar__amount {
   color: var(--color-amber-400);
 }
+
+/* ── Toplu Excel İçe Aktarma ── */
+.bulk-colmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.bulk-colmap__item { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.bulk-colmap__item select { padding: 8px; }
+.bulk-group { border: 1px solid var(--line, #e3e7ee); border-radius: 12px; padding: 12px; margin-top: 12px; }
+.bulk-group__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.bulk-group__head select { padding: 7px 9px; min-width: 180px; }
+.input--warn { border-color: #b45309 !important; background: #fffbeb; }
+.bulk-rows { display: flex; flex-direction: column; gap: 3px; }
+.bulk-row { display: grid; grid-template-columns: 1fr 1.4fr 0.8fr 1fr; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 8px; font-size: 13px; }
+.bulk-row:nth-child(even) { background: rgba(15, 42, 71, 0.035); }
+.bulk-row--head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .65; }
+.bulk-row input, .bulk-row select { width: 100%; padding: 6px 8px; font-size: 12.5px; }
+.bulk-cost { margin-top: 10px; border-top: 1px dashed var(--line, #e3e7ee); padding-top: 8px; font-size: 13px; }
+.bulk-cost__row { display: flex; justify-content: space-between; padding: 3px 2px; }
+.bulk-cost__total { border-top: 1px solid var(--line, #e3e7ee); margin-top: 4px; padding-top: 6px; font-size: 14px; }
+.bulk-summary { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 14px; flex-wrap: wrap; gap: 8px; }

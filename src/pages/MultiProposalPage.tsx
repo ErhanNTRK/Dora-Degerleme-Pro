@@ -36,7 +36,8 @@ type ActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' 
  * Taslak koruması: sahada yarım kalan çoklu teklif, sayfa yenilense / uygulama arka
  * plana atılsa bile kaybolmaz. Taslak cihazda tutulur; "Taslağı Sil" ile temizlenir.
  */
-const DRAFT_KEY = 'dora-multi-proposal-draft-v1';
+import { MULTI_PROPOSAL_DRAFT_KEY } from '../bulk/excelImport';
+const DRAFT_KEY = MULTI_PROPOSAL_DRAFT_KEY;   // tek doğruluk kaynağı: src/bulk/excelImport
 
 interface ComposerDraft {
   rows: ProposalRow[];
