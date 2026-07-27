@@ -34,6 +34,9 @@ export interface ProposalRow {
   areas?: number[];
   /** Aynı türden taşınmaz adedi (ör. "Kadıköy'de 2 dükkan" → 2). Tapu sayısı da budur. */
   count: number;
+  /** Tapu (TAKBİS) adedi ezmesi: bir iş için birden fazla tapu belgesi çekilebilir.
+   *  null/undefined → tapu adedi = taşınmaz adedi (mevcut davranış birebir korunur). */
+  titleDeedCountOverride?: number | null;
   /** Adet > 1 iken: G1 aynı mahalle / G2 aynı parsel toplu değerleme koşulu. */
   bulkTogether: boolean;
   /** Manuel ücretli alt türler veya kullanıcı ezmesi için satır tutarı (null → motor). */
@@ -94,7 +97,7 @@ export function buildRowCalculationInput(row: ProposalRow, settings: Calculation
   }));
   return {
     properties,
-    titleDeedCount: Math.max(1, row.count),
+    titleDeedCount: row.titleDeedCountOverride ?? Math.max(1, row.count),
     municipalityFee: row.municipalityFee,
     otherFees: [],
     settings,

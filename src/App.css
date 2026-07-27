@@ -815,3 +815,17 @@
 .bulk-cost__row { display: flex; justify-content: space-between; padding: 3px 2px; }
 .bulk-cost__total { border-top: 1px solid var(--line, #e3e7ee); margin-top: 4px; padding-top: 6px; font-size: 14px; }
 .bulk-summary { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 14px; flex-wrap: wrap; gap: 8px; }
+
+/* ── Toplu Excel v2 ── */
+.bulk-group__tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bulk-group__tools select { padding: 6px 8px; font-size: 12.5px; }
+.bulk-group--droppable { outline: 2px dashed rgba(15,42,71,.25); outline-offset: 2px; }
+.bulk-group--newdrop { text-align: center; color: var(--muted, #667); border-style: dashed; padding: 14px; cursor: default; }
+.bulk-row[draggable="true"] { cursor: grab; }
+.bulk-row--drag { opacity: .45; }
+.bulk-row { grid-template-columns: 1fr 0.9fr 1.3fr 0.75fr 0.9fr; }
+.bulk-cost__row--off { opacity: .5; }
+.bulk-cost__row input[type="checkbox"] { vertical-align: -2px; }
+.bulk-mini { width: 64px; padding: 3px 6px; font-size: 12.5px; }
+.bulk-mini--wide { width: 110px; }
+.linklike { border: none; background: none; color: #1d4ed8; cursor: pointer; font-size: 12px; padding: 0 4px; }

@@ -1,34 +1,55 @@
-# Toplu Excel İçe Aktarma — Dora Değerleme Pro Yükleme Paketi
+# Toplu Excel v2 — Akıllı Teklif Hazırlama Ekranı (Yükleme Paketi)
 
 Doğrulama (bu paketin çıktığı kopyada): `npx tsc -b` → 0 hata ·
-`npm run test` → **78/78** (mevcut 70 + yeni 8) · `npm run build` → başarılı.
-Hesaplama motoruna (src/engine) DOKUNULMAMIŞTIR.
+`npm run test` → **112/112** (önceki 78 + yeni 34) · `npm run build` → başarılı ·
+oxlint (bu paketin dosyaları) → 0 hata. Hesaplama motoruna (src/engine)
+DOKUNULMAMIŞTIR. v1 Toplu Excel'in üzerine gelir; rota ve menü aynıdır
+(/toplu-yukleme — "Excel"), ikinci bir ekran doğmaz.
 
 ## Dosyalar
 
 YENİ:
-- src/bulk/excelImport.ts        → içe aktarma çekirdeği (saf, React'siz)
-- src/bulk/excelImport.test.ts   → 8 regresyon testi
-- src/pages/BulkImportPage.tsx   → "Excel'den Rapor Oluştur" sayfası (/toplu-yukleme)
+- src/bulk/fuzzy.ts (+test)            → TR katlama + Levenshtein; belirsizlikte dayatmaz
+- src/bulk/smartGroupCost.ts (+test)   → tebliğe uygun alt küme maliyeti (G1 mahalle / G2 ada-parsel)
+- src/bulk/smartParse.test.ts          → 3 gerçek müşteri formatının ANONİM golden testleri
+- public/data/mahalle-database.json    → 49.621 mahalle → ilçe sözlüğü (0,77 MB, çevrimdışı;
+                                         kaynak: github.com/nejdetkadir/il-ilce-semt-mahalleler, MIT)
 
-ÜZERİNE YAZILACAK (minimal diff):
-- src/App.tsx                    → yalnız yeni route (2 satır)
-- src/components/Layout.tsx      → alt menüye "Excel" bağlantısı (1 blok)
-- src/pages/MultiProposalPage.tsx→ DRAFT_KEY artık src/bulk'tan gelir (tek doğruluk kaynağı; davranış aynı)
-- src/App.css                    → yalnız dosya sonuna toplu-yükleme stilleri
-- package.json / package-lock.json → yeni bağımlılık: xlsx (Excel okumak için; cihazda çalışır, dosya hiçbir yere gönderilmez)
+ÜZERİNE YAZILACAK:
+- src/bulk/excelImport.ts              → v2 akıllı katman (v1 API'si korunur)
+- src/pages/BulkImportPage.tsx         → v2 ekran (aşağıda)
+- src/proposal/multiProposalRows.ts    → tek ekleme: titleDeedCountOverride (tapu adedi ezmesi;
+                                         null iken davranış birebir eski — regresyonlar geçti)
+- src/App.css                          → yalnız dosya sonuna v2 stilleri
+
+## v2 neler yapar
+- Başlık satırını KENDİSİ bulur (2.-3. satırda olsa da); müşteri unvanını üst
+  satırdan yakalar ve düzenlenebilir alana koyar.
+- Kolonları başlık + İÇERİK analiziyle tanır ("Semt" başlıklı kolonun mahalle
+  olduğunu değerlerden anlar; sıra-numarası kolonunu alan sanmaz).
+- Yazım hatalarını fuzzy düzeltir: istanbul→İSTANBUL, Besiktas→BEŞİKTAŞ,
+  "ALAÇATI M"→ALAÇATI (✎ rozetiyle gösterir; iki aday başa başsa DAYATMAZ).
+- Birleşik "ADA/PARSEL" (1343/151, __/4544), "Eski 0 Yeni 2344" (Yeni esas),
+  nitelik içindeki gömülü m² ("741,00 m2 arsa") çözülür; boş konumlu devam
+  satırları üstten miras alır (⤷ işareti).
+- Tapu Türü eşlemesi: Kat Mülkiyeti→G2-T1; Cins Tashihi + konut→G2-T2; nitelik
+  konut değilse MAHAL NİTELİĞİ belirler. Öneri asla kilitli değildir.
+- Rapor grubu İLÇE bazlıdır (Caferağa+Moda tek rapor); toplu değerleme indirimi
+  tebliğe uygun ALT KÜMELERDE hesaplanır ve motorla doğrulanmıştır.
+- İlçe hiç yoksa AYNI MAHALLE varsayılır (ekranda açık uyarı). Yalnız mahalle
+  yazan listelerde mahalle sözlüğü ilçeyi bulur (Levent→BEŞİKTAŞ); mahalle
+  birden çok ilçedeyse seçim kullanıcıya bırakılır.
+- Her rapor kartında maliyet kalemleri AYRI satırlar: tarife bedeli (indirim
+  ayrıca görünür) · tapu (ADET ELLE DEĞİŞTİRİLEBİLİR — TAKBİS kuralı) · belediye
+  harcı (otomatik/elle/sıfır) · ulaşım · TDUB · bilgi merkezi (her biri aç/kapat).
+- Satırlar sürükle-bırak veya seçiciyle taşınır; "buraya bırak → yeni rapor"
+  alanı vardır; gruplar birleştirilir/silinir; ↺ önerilen gruplamaya döner.
+- Onayla → Çoklu Teklif kompozerine taslak düşer (kalem ayarları ve tapu adedi
+  hesaplara birebir taşınır; müşteri unvanı doldurulur). Teklif: KDV hariç
+  tutar + KDV %20 = genel toplam; maliyet dökümü ofis görünümünde.
 
 ## Yükleme
-GitHub → Dora-Degerleme-Pro → Add file → Upload files → zip içindeki `src`
-klasörünü + package.json + package-lock.json sürükleyip bırak → Commit.
-Sonra her zamanki gibi build alıp yayın reposuna (Dora-SPK-Tarife) aktarın.
-Not: `npm install` bir kez çalıştırılmalı (xlsx paketi için).
-
-## Akış
-Excel yükle → kolonlar otomatik algılanır (İL/İLÇE/MAHALLE/ADA/PARSEL/TAPU
-NİTELİĞİ/ALAN; başlık adları esnek, elle düzeltilebilir) → satırlar il+ilçe+
-mahalle+niteliğe göre RAPORLARA gruplanır → satırlar raporlar arasında
-taşınabilir, tür/alan düzeltilebilir → her rapor için OFİS maliyet dökümü
-(tarife + toplu değerleme indirimi + tapu + belediye harcı [Arsa/Tarla'da
-uygulanmaz] + ulaşım/TDUB/bilgi merkezi) → ONAYLA → mevcut Çoklu Teklif
-ekranına taslak olarak düşer; teklif orada KDV hariç tutar + %20 KDV ile üretilir.
+GitHub → Dora-Degerleme-Pro → Add file → Upload files → zip içindeki `src` ve
+`public` klasörlerini sürükleyip bırak → Commit. (xlsx bağımlılığı v1'de
+eklenmişti; yeni bağımlılık yoktur.) Sonra her zamanki gibi build alıp yayın
+reposuna aktarın.
