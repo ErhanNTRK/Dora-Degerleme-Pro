@@ -99,6 +99,17 @@ const NITELIK_KEYWORDS: [RegExp, string][] = [
   [/AKARYAKIT|BENZ[İI]N/u, 'Akaryakıt İstasyonu'],
 ];
 
+/** Yazım hatalı nitelikler için kelime sözlüğü (fuzzy hedefleri). */
+const NITELIK_LEXICON: [string, string][] = [
+  ['arsa', 'Arsa'], ['tarla', 'Tarla / Bağ / Bahçe'], ['bahçe', 'Tarla / Bağ / Bahçe'],
+  ['zeytinlik', 'Tarla / Bağ / Bahçe'], ['mesken', 'Daire (Konut)'], ['daire', 'Daire (Konut)'],
+  ['konut', 'Daire (Konut)'], ['villa', 'Müstakil Ev'], ['müstakil', 'Müstakil Ev'],
+  ['dükkan', 'Dükkan'], ['mağaza', 'Dükkan'], ['işyeri', 'Dükkan'],
+  ['ofis', 'Ofis / Büro'], ['büro', 'Ofis / Büro'], ['fabrika', 'Fabrika'],
+  ['depo', 'Depo'], ['antrepo', 'Depo'], ['otel', 'Otel'], ['pansiyon', 'Otel'],
+  ['akaryakıt', 'Akaryakıt İstasyonu'],
+];
+
 export function guessAliasName(nitelik: string, aliases: ServiceAlias[]): string | null {
   const key = normKey(nitelik);
   if (!key) return null;
@@ -107,7 +118,18 @@ export function guessAliasName(nitelik: string, aliases: ServiceAlias[]): string
   }
   // Birebir alias adı yazılmışsa onu kabul et
   const direct = aliases.find((a) => normKey(a.name) === key || normKey(a.documentName) === key);
-  return direct ? direct.name : null;
+  if (direct) return direct.name;
+  // Fuzzy: "TARLLLA"→tarla, "OFŞS"→ofis — kelime kelime, belirsizlikte dayatma yok
+  const words = NITELIK_LEXICON.map(([w]) => w);
+  for (const token of trFold(nitelik).split(' ')) {
+    if (token.length < 3) continue;
+    const m = fuzzyMatch(token, words, 2);
+    if (m) {
+      const hit = NITELIK_LEXICON.find(([w]) => w === m.name)!;
+      if (aliases.some((a) => a.name === hit[1])) return hit[1];
+    }
+  }
+  return null;
 }
 
 /** Arsa/Tarla (G1) raporlarında belediye harcı uygulanmaz. */
@@ -449,14 +471,22 @@ export function smartParse(
   if (rows.length && rows.every((r) => !r.ilce)) {
     notes.push('Excel\'de ilçe bilgisi yok: satırlar AYNI MAHALLE varsayımıyla gruplandı (SPK toplu değerleme koşulu sağlanmış sayılır). Yanlışsa satırları ayırın.');
   }
-  return { headerRowIndex, customerName, cols, rows: suggestGroupsV2(rows), notes };
+  return { headerRowIndex, customerName, cols, rows: suggestGroupsV2(rows, aliases), notes };
 }
 
-/** v2 gruplama: rapor grubu İL + İLÇE + TÜR bazlıdır — MAHALLE grubu bölmez
- *  (Caferağa + Moda aynı raporda; indirim alt kümeleri hesapta ayrışır). */
-export function suggestGroupsV2(rows: ImportRow[]): ImportRow[] {
-  return rows.map((r) => ({
-    ...r,
-    groupKey: [trFold(r.il), trFold(r.ilce) || `mah:${trFold(r.mahalle)}`, r.aliasName ?? '??'].join('|'),
-  }));
+/** SAF TEBLİĞ gruplaması (Salih kuralı, 2026-07-26): sistem hiçbir birleştirmeyi
+ *  kendiliğinden yapmaz. Yalnız tebliğ koşulu kendiliğinden sağlanıyorsa grup kurar:
+ *   - G1 (arsa/tarla): aynı il+ilçe+MAHALLE
+ *   - G2 (bağımsız bölüm/müstakil): aynı il+ilçe+ADA/PARSEL
+ *   - diğer her şey: TAŞINMAZ BAŞINA AYRI RAPOR (2 fabrika → 2 kart)
+ *  Birleştirme kullanıcının hakkıdır (özel rapor). */
+export function suggestGroupsV2(rows: ImportRow[], aliases: ServiceAlias[]): ImportRow[] {
+  const gid = (r: ImportRow) => aliases.find((a) => a.name === r.aliasName)?.groupId ?? '';
+  return rows.map((r) => {
+    const g = gid(r);
+    const loc = [trFold(r.il), trFold(r.ilce) || `mah:${trFold(r.mahalle)}`].join('|');
+    if (g === 'G1' && r.mahalle) return { ...r, groupKey: `g1|${loc}|${trFold(r.mahalle)}` };
+    if (g === 'G2' && (r.ada || r.parsel)) return { ...r, groupKey: `g2|${loc}|${r.ada}/${r.parsel}` };
+    return { ...r, groupKey: `solo|${r.id}` };
+  });
 }

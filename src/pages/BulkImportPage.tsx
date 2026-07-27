@@ -1,18 +1,18 @@
 /**
- * TOPLU EXCEL İÇE AKTARMA v2 — akıllı teklif hazırlama ekranı.
+ * TOPLU EXCEL İÇE AKTARMA v3 — saf tebliğ + tam kullanıcı kontrolü.
  *
- * Karışık müşteri Excel'leri için: başlık satırını kendisi bulur, müşteri
- * unvanını yakalar, kolonları başlık + İÇERİK analiziyle tanır (il/ilçe
- * veritabanına karşı), yazım hatalarını fuzzy eşlemeyle düzeltir (dayatmadan),
- * birleşik ADA/PARSEL ve "Eski/Yeni" desenlerini çözer, boş konumlu devam
- * satırlarına üstten miras verir. Raporlar İLÇE bazlı gruplanır (mahalle grubu
- * bölmez); toplu değerleme indirimi tebliğe uygun alt kümelerde hesaplanır
- * (G1: aynı mahalle · G2: aynı ada/parsel). Her rapor kartında TÜM maliyet
- * kalemleri AYRI satırlar halinde gösterilir ve tek tek kapatılabilir/ezilebilir;
- * tapu adedi elle değiştirilebilir (TAKBİS kuralı). Satırlar sürükle-bırak veya
- * seçiciyle taşınır; gruplar birleştirilebilir/silinebilir. Onayla → Çoklu
- * Teklif kompozerine taslak olarak aktarılır (maliyet dökümü ofis görünümünde;
- * müşteri teklifinde KDV hariç tutar + KDV = genel toplam).
+ * İlk öneri TAMAMEN 2026 tarifesine göredir: G1 aynı mahallede, G2 aynı
+ * ada/parselde kendiliğinden gruplanır; diğer her şey taşınmaz başına AYRI
+ * rapordur (2 fabrika → 2 kart). Birleştirme kullanıcının hakkıdır (villa+arsası
+ * gibi özel raporlar): sistem engellemez, "özel rapor" rozetiyle işaretler.
+ *
+ * Rapor kartında her taşınmaz KENDİ satırıyla yaşar: tür (fuzzy önerili,
+ * değiştirilebilir) · mahalle/ada/parsel (elle yazılabilir) · alan · taban ücret ·
+ * YÜZDE (en yüksek %100, diğerleri G2 %15 / G1 %20 / diğer %20 önerilir; %50
+ * dahil serbestçe ezilir) · belediye harcı (taşınmaz başına; elle/sıfır) ·
+ * tapu adedi (taşınmaz başına birer; "TAKBİS almayın" → 0). Yol/TDUB/bilgi
+ * merkezi rapor başına TEK'tir ve kapatılabilir. Rapor için TEKLİF TUTARI
+ * elle ezilebilir; ofis maliyet dökümü yine görünür. Onayla → Çoklu Teklif.
  *
  * Kural: hesaplama motoru (src/engine) DEĞİŞTİRİLMEDEN çağrılır.
  */
@@ -24,25 +24,32 @@ import { useLocationDb } from '../context/LocationContext';
 import { db } from '../db/database';
 import { formatTL, uid } from '../utils/format';
 import {
-  smartParse, groupList, groupToProposalRow, suggestGroupsV2,
+  smartParse, groupList, suggestGroupsV2,
   MULTI_PROPOSAL_DRAFT_KEY,
-  type ImportRow, type ReportGroup, type SmartContext, type SmartParseResult,
+  type ImportRow, type SmartContext, type SmartParseResult,
 } from '../bulk/excelImport';
-import { computeSmartGroup, type SmartGroupCost } from '../bulk/smartGroupCost';
+import { computeReportV3, type RowFeeInput, type ReportCostV3 } from '../bulk/reportCost';
 import { trFold } from '../bulk/fuzzy';
 import { EMPTY_CUSTOMER_INFO } from '../types/profile';
 import { AlertIcon } from '../components/icons';
 
-interface GroupMeta {
-  /** null → otomatik (G1'de 0/uygulanmaz, diğerlerinde ilçe kaydı) */
+interface RowMeta {
+  /** null → otomatik (G1'de 0, diğerlerinde ilçe kaydı) */
   municipalityFee: number | null;
-  /** null → taşınmaz adedi */
-  titleDeedCount: number | null;
+  /** Tapu (TAKBİS) adedi — taşınmaz başına birer gelir */
+  deeds: number;
+  /** null → önerilen yüzde */
+  pct: number | null;
+}
+interface GroupMeta {
   transport: boolean;
   union: boolean;
   infoCenter: boolean;
+  /** Teklif tutarı ezmesi (KDV hariç); null → hesaplanan maliyet */
+  proposal: number | null;
 }
-const DEFAULT_META: GroupMeta = { municipalityFee: null, titleDeedCount: null, transport: true, union: true, infoCenter: true };
+const DEF_ROW: RowMeta = { municipalityFee: null, deeds: 1, pct: null };
+const DEF_GROUP: GroupMeta = { transport: true, union: true, infoCenter: true, proposal: null };
 
 export function BulkImportPage() {
   const navigate = useNavigate();
@@ -55,29 +62,25 @@ export function BulkImportPage() {
   const [parsed, setParsed] = useState<SmartParseResult | null>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [customer, setCustomer] = useState('');
-  const [meta, setMeta] = useState<Map<string, GroupMeta>>(new Map());
+  const [rowMeta, setRowMeta] = useState<Map<string, RowMeta>>(new Map());
+  const [groupMeta, setGroupMeta] = useState<Map<string, GroupMeta>>(new Map());
   const [fees, setFees] = useState<Map<string, number>>(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [quarterIndex, setQuarterIndex] = useState<Map<string, { il: string; ilce: string }[]> | undefined>(undefined);
 
-  // Mahalle sözlüğü (opsiyonel veri dosyası; yoksa özellik sessizce devre dışı)
   useMemo(() => {
     fetch(`${import.meta.env.BASE_URL}data/mahalle-database.json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!d?.provinces) return;
         const idx = new Map<string, { il: string; ilce: string }[]>();
-        for (const p of d.provinces) {
-          for (const t of p.districts ?? []) {
-            for (const q of t.quarters ?? []) {
-              const k = trFold(q);
-              const arr = idx.get(k) ?? [];
-              arr.push({ il: p.name, ilce: t.name });
-              idx.set(k, arr);
-            }
-          }
+        for (const p of d.provinces) for (const t of p.districts ?? []) for (const q of t.quarters ?? []) {
+          const k = trFold(q);
+          const arr = idx.get(k) ?? [];
+          arr.push({ il: p.name, ilce: t.name });
+          idx.set(k, arr);
         }
         setQuarterIndex(idx);
       })
@@ -106,126 +109,128 @@ export function BulkImportPage() {
     try {
       const XLSX = await import('xlsx');
       const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) as unknown[][];
+      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' }) as unknown[][];
       if (data.length < 1) { setError('Dosyada veri bulunamadı.'); return; }
-
-      // Belediye harçları: kurumsal kayıtlar + il-ilçe veritabanındaki tutarlar
       const map = new Map<string, number>();
-      for (const p of locationDb?.provinces ?? []) {
-        for (const d of p.districts) {
-          if (d.fee != null) map.set(`${trFold(p.name)}|${trFold(d.name)}`, d.fee);
-        }
+      for (const p of locationDb?.provinces ?? []) for (const d of p.districts) {
+        if (d.fee != null) map.set(`${trFold(p.name)}|${trFold(d.name)}`, d.fee);
       }
-      for (const r of await db.municipalityFees.toArray()) {
-        map.set(`${trFold(r.province)}|${trFold(r.district)}`, r.fee);
-      }
+      for (const r of await db.municipalityFees.toArray()) map.set(`${trFold(r.province)}|${trFold(r.district)}`, r.fee);
       setFees(map);
-
       const result = smartParse(data, serviceAliases, ctx);
-      setFileName(f.name);
-      setParsed(result);
-      setRows(result.rows);
+      setFileName(f.name); setParsed(result); setRows(result.rows);
       setCustomer(result.customerName);
-      setMeta(new Map());
+      setRowMeta(new Map()); setGroupMeta(new Map());
       if (!result.rows.length) setError('Tabloda taşınmaz satırı bulunamadı. Dosyayı kontrol edin.');
     } catch (e) {
       setError('Excel okunamadı: dosyanın .xlsx biçiminde olduğundan emin olun.');
       console.error(e);
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   const groups = useMemo(() => groupList(rows), [rows]);
-  const getMeta = (key: string): GroupMeta => meta.get(key) ?? DEFAULT_META;
-  const setGroupMeta = (key: string, patch: Partial<GroupMeta>) =>
-    setMeta((prev) => new Map(prev).set(key, { ...getMeta(key), ...patch }));
+  const getRM = (id: string): RowMeta => rowMeta.get(id) ?? DEF_ROW;
+  const setRM = (id: string, patch: Partial<RowMeta>) =>
+    setRowMeta((prev) => new Map(prev).set(id, { ...getRM(id), ...patch }));
+  const getGM = (key: string): GroupMeta => groupMeta.get(key) ?? DEF_GROUP;
+  const setGM = (key: string, patch: Partial<GroupMeta>) =>
+    setGroupMeta((prev) => new Map(prev).set(key, { ...getGM(key), ...patch }));
 
-  function moveRow(rowId: string, targetKey: string) {
-    setRows((prev) => prev.map((r) => {
-      if (r.id !== rowId) return r;
-      if (targetKey === '__new__') return { ...r, groupKey: `yeni|${rowId}|${Date.now()}` };
-      const target = prev.find((x) => x.groupKey === targetKey);
-      return { ...r, groupKey: targetKey, aliasName: target?.aliasName ?? r.aliasName };
-    }));
-  }
-  function mergeGroup(fromKey: string, toKey: string) {
-    if (fromKey === toKey) return;
-    const target = rows.find((x) => x.groupKey === toKey);
-    setRows((prev) => prev.map((r) => (r.groupKey === fromKey
-      ? { ...r, groupKey: toKey, aliasName: target?.aliasName ?? r.aliasName } : r)));
-  }
-  function deleteGroup(key: string) {
+  const patchRow = (id: string, patch: Partial<ImportRow>) =>
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const moveRow = (rowId: string, targetKey: string) =>
+    setRows((prev) => prev.map((r) => (r.id !== rowId ? r
+      : { ...r, groupKey: targetKey === '__new__' ? `solo|${rowId}|${Date.now()}` : targetKey })));
+  const mergeGroup = (fromKey: string, toKey: string) => {
+    if (fromKey !== toKey) setRows((prev) => prev.map((r) => (r.groupKey === fromKey ? { ...r, groupKey: toKey } : r)));
+  };
+  const deleteGroup = (key: string) => {
     const g = groups.find((x) => x.key === key);
-    if (!g) return;
-    if (!window.confirm(`Rapor silinsin mi? İçindeki ${g.rows.length} satır listeden kaldırılacak.`)) return;
-    setRows((prev) => prev.filter((r) => r.groupKey !== key));
-  }
-  function setGroupAlias(key: string, aliasName: string) {
-    setRows((prev) => prev.map((r) => (r.groupKey === key ? { ...r, aliasName: aliasName || null } : r)));
-  }
-  function setRowArea(rowId: string, alan: number | undefined) {
-    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, alan } : r)));
-  }
-  function regroup() {
-    setRows((prev) => suggestGroupsV2(prev));
-    setMeta(new Map());
-  }
+    if (g && window.confirm(`Rapor silinsin mi? İçindeki ${g.rows.length} satır listeden kaldırılacak.`))
+      setRows((prev) => prev.filter((r) => r.groupKey !== key));
+  };
+  const regroup = () => { setRows((prev) => suggestGroupsV2(prev, serviceAliases)); setGroupMeta(new Map()); };
 
-  interface GroupView { g: ReportGroup; m: GroupMeta; autoFee: number; fee: number; deeds: number; cost: SmartGroupCost | null; arsaTarla: boolean }
-  const views: GroupView[] = useMemo(() => groups.map((g) => {
-    const m = getMeta(g.key);
-    const alias = g.aliasName ? serviceAliases.find((a) => a.name === g.aliasName) : undefined;
-    const arsaTarla = alias?.groupId === 'G1';
-    const autoFee = arsaTarla ? 0 : (feeLookup(g.il, g.ilce) ?? 0);
-    const fee = m.municipalityFee ?? autoFee;
-    const deeds = m.titleDeedCount ?? g.rows.length;
-    const cost = tariff && settings && alias ? computeSmartGroup(tariff, g.rows, alias, {
+  interface View { key: string; rows: ImportRow[]; gm: GroupMeta; cost: ReportCostV3 | null; title: string }
+  const views: View[] = useMemo(() => groups.map((g) => {
+    const gm = getGM(g.key);
+    const inputs: RowFeeInput[] = g.rows.map((r) => {
+      const rm = getRM(r.id);
+      const alias = r.aliasName ? serviceAliases.find((a) => a.name === r.aliasName) ?? null : null;
+      const autoFee = alias?.groupId === 'G1' ? 0 : (r.il && r.ilce ? (feeLookup(r.il, r.ilce) ?? 0) : 0);
+      return { row: r, alias, pctOverride: rm.pct, municipalityFee: rm.municipalityFee ?? autoFee, deeds: rm.deeds };
+    });
+    const cost = tariff && settings ? computeReportV3(tariff, inputs, {
       titleDeedFeePerDeed: settings.titleDeedFeePerDeed,
       infoCenterFeePerReport: settings.infoCenterFeePerReport,
       unionFeePerReport: settings.unionFeePerReport,
       transportFeePerReport: settings.transportFeePerReport,
       vatRatePercent: settings.vatRatePercent,
       infoCenterFeeEnabled: true, unionFeeEnabled: true, transportFeeEnabled: true,
-    }, {
-      municipalityFee: fee, titleDeedCount: deeds,
-      transportEnabled: m.transport, unionEnabled: m.union, infoCenterEnabled: m.infoCenter,
-    }) : null;
-    return { g, m, autoFee, fee, deeds, cost, arsaTarla };
+    }, { transport: gm.transport, union: gm.union, infoCenter: gm.infoCenter, proposalOverride: gm.proposal }) : null;
+    const first = g.rows[0];
+    const title = [first?.il, first?.ilce].filter(Boolean).join(' / ') || first?.mahalle || '—';
+    return { key: g.key, rows: g.rows, gm, cost, title };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [groups, meta, tariff, settings, serviceAliases, fees]);
+  }), [groups, rowMeta, groupMeta, tariff, settings, serviceAliases, fees]);
 
-  const missingAlias = groups.filter((g) => !g.aliasName).length;
+  const missingAlias = rows.filter((r) => !r.aliasName).length;
   const kdvOran = settings?.vatRatePercent ?? 20;
   const totalSubtotal = views.reduce((s, v) => s + (v.cost?.subtotal ?? 0), 0);
 
   function approveAndSend() {
     if (!tariff) return;
     if (missingAlias > 0 && !window.confirm(
-      `${missingAlias} raporun hizmet türü seçilmedi; bu raporlar 0 TL hesaplanır. Yine de aktarılsın mı?`)) return;
+      `${missingAlias} taşınmazın türü seçilmedi; bu satırlar 0 TL hesaplanır. Yine de aktarılsın mı?`)) return;
     if (localStorage.getItem(MULTI_PROPOSAL_DRAFT_KEY)
       && !window.confirm('Çoklu Teklif ekranında kayıtlı bir taslak var; üzerine yazılacak. Devam edilsin mi?')) return;
 
     const proposalRows = views.map((v) => {
-      const base = groupToProposalRow(v.g, serviceAliases, feeLookup, uid());
-      const heterojen = (v.cost?.subsetCount ?? 1) > 1;
+      const c = v.cost!;
+      const first = v.rows[0];
+      const alias = first.aliasName ? serviceAliases.find((a) => a.name === first.aliasName) : undefined;
+      const single = v.rows.length === 1;
+      const pure = single && c && !c.proposalOverridden
+        && c.rows[0].appliedPct === 100
+        && c.rows[0].municipalityFee === (alias?.groupId === 'G1' ? 0 : c.rows[0].municipalityFee)
+        && c.rows[0].deeds === 1;
+      const adaParsel = v.rows.map((r) => [r.ada, r.parsel].filter(Boolean).join('/')).filter(Boolean).join(', ');
+      const label = single
+        ? ''
+        : `${v.title} — ${v.rows.length} taşınmaz${c?.tebligCompliant ? '' : ' (özel rapor)'}`;
+
+      // Tek taşınmazlı, ezmesiz satırlar motora birebir gider; kalanlar tutar-sabitli aktarılır
+      if (pure && alias) {
+        return {
+          id: uid(), kind: 'custom' as const, label: '',
+          province: first.il, district: first.ilce,
+          municipalityFee: c.rows[0].municipalityFee,
+          municipalityFeeSource: c.rows[0].municipalityFee > 0 ? 'manual' as const : null,
+          groupId: alias.groupId, subtypeId: alias.subtypeId,
+          count: 1, area: first.alan, areas: undefined,
+          bulkTogether: false, manualAmount: null,
+          titleDeedCountOverride: null,
+          transportFeeEnabled: v.gm.transport, unionFeeEnabled: v.gm.union, infoCenterFeeEnabled: v.gm.infoCenter,
+          serviceAlias: alias.name,
+          mahalle: first.mahalle || undefined, ada: first.ada || undefined, parsel: first.parsel || undefined,
+        };
+      }
       return {
-        ...base,
-        municipalityFee: v.fee,
-        municipalityFeeSource: v.m.municipalityFee != null ? 'manual' as const : base.municipalityFeeSource,
-        titleDeedCountOverride: v.m.titleDeedCount,
-        transportFeeEnabled: v.m.transport,
-        unionFeeEnabled: v.m.union,
-        infoCenterFeeEnabled: v.m.infoCenter,
-        // Karışık indirim alt kümeli raporlar: tebliğe uygun tutar burada hesaplandı,
-        // kompozerde satır tutarı olarak sabitlenir (motor tek kümeyle farklı bulurdu).
-        manualAmount: heterojen && v.cost ? v.cost.subtotal : base.manualAmount,
-        label: heterojen ? `${v.g.ilce} ${v.g.aliasName ?? ''} (${v.g.rows.length} taşınmaz · tebliğ alt kümeli)`.trim() : base.label,
+        id: uid(), kind: 'custom' as const, label,
+        province: first.il, district: first.ilce,
+        municipalityFee: c?.municipalityTotal ?? 0, municipalityFeeSource: 'manual' as const,
+        groupId: alias?.groupId ?? '', subtypeId: alias?.subtypeId ?? '',
+        count: v.rows.length, area: undefined, areas: undefined,
+        bulkTogether: false,
+        manualAmount: c?.subtotal ?? 0,          // yüzdeler/ezmelerle KDV hariç rapor tutarı sabitlenir
+        titleDeedCountOverride: null,
+        transportFeeEnabled: v.gm.transport, unionFeeEnabled: v.gm.union, infoCenterFeeEnabled: v.gm.infoCenter,
+        serviceAlias: alias?.name,
+        mahalle: first.mahalle || undefined, ada: adaParsel || undefined, parsel: undefined,
       };
     });
 
-    const isCompany = /A\.?Ş|LTD|ŞTİ|ŞİRKET|HOLDİNG|BANK/i.test(customer);
+    const isCompany = /A\.?Ş|LTD|ŞTİ|ŞİRKET|HOLDİNG|BANK|BELEDİYE/i.test(customer);
     localStorage.setItem(MULTI_PROPOSAL_DRAFT_KEY, JSON.stringify({
       rows: proposalRows,
       customer: {
@@ -240,27 +245,14 @@ export function BulkImportPage() {
     navigate('/coklu-teklif');
   }
 
-  const feeLine = (label: string, enabled: boolean, onToggle: (() => void) | null, amount: number, extra?: React.ReactNode) => (
-    <div className={`bulk-cost__row${enabled ? '' : ' bulk-cost__row--off'}`}>
-      <span>
-        {onToggle && (
-          <input type="checkbox" checked={enabled} onChange={onToggle} title="Kalemi aç/kapat" />
-        )}
-        {' '}{label} {extra}
-      </span>
-      <b>{enabled ? formatTL(amount) : '0,00 TL'}</b>
-    </div>
-  );
-
   return (
     <div className="page">
       <div className="page__head">
         <span className="page__eyebrow">Toplu İş Girişi</span>
         <h1 className="page__title">Excel'den Rapor Oluştur</h1>
         <p className="page__desc">
-          Müşteriden gelen listeyi (.xlsx) olduğu gibi yükleyin: başlık satırı, kolonlar ve
-          yazım hataları otomatik çözülür; raporlar SPK tebliğine göre gruplanır. Gruplar
-          tamamen düzenlenebilir — sistem önerir, karar sizindir.
+          Müşteriden gelen listeyi (.xlsx) olduğu gibi yükleyin. İlk öneri tamamen 2026 tarifesine
+          göredir; birleştirme ve tüm değişiklikler size aittir — sistem önerir, dayatmaz.
         </p>
       </div>
 
@@ -287,7 +279,6 @@ export function BulkImportPage() {
         <>
           <div className="card">
             <div className="section-title">2 · Müşteri</div>
-            <p className="muted">Excel'in üst satırından yakalandı; teklife bu adla aktarılır — düzeltebilirsiniz.</p>
             <input className="input" style={{ maxWidth: 480 }} value={customer}
                    placeholder="Müşteri adı / unvanı"
                    onChange={(e) => setCustomer(e.target.value)} />
@@ -295,117 +286,147 @@ export function BulkImportPage() {
 
           <div className="card">
             <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-              <span>3 · Rapor Grupları ({groups.length} rapor)</span>
-              <button type="button" className="btn" onClick={regroup}>↺ Önerilen gruplamaya dön</button>
+              <span>3 · Raporlar ({groups.length})</span>
+              <button type="button" className="btn" onClick={regroup}>↺ Tebliğ önerisine dön</button>
             </div>
             <p className="muted">
-              Aynı karttaki taşınmazlar AYNI RAPORDA hesaplanır (belediye/yol/TDUB/bilgi merkezi bir kez;
-              tapu harcı tapu adedince). Satırı sürükleyip başka kartın üzerine bırakın ya da satırdaki
-              seçiciyi kullanın. ⤷ işareti üst satırdan miras alınan konumu, ✎ fuzzy yazım düzeltmesini gösterir.
+              Satırı sürükleyip başka kartın üzerine bırakın ya da satırdaki seçiciyi kullanın.
+              Yüzde: en yüksek taban %100, diğerleri G2 %15 · G1 %20 · diğer %20 önerilir — serbestçe değiştirin.
+              ⤷ mirası, ✎ fuzzy düzeltmeyi gösterir; mahalle/ada/parsel elle yazılabilir.
             </p>
 
-            {views.map(({ g, m, autoFee, fee, deeds, cost, arsaTarla }, gi) => (
-              <div className={`bulk-group${dragRow ? ' bulk-group--droppable' : ''}`} key={g.key}
+            {views.map((v, gi) => (
+              <div className={`bulk-group${dragRow ? ' bulk-group--droppable' : ''}`} key={v.key}
                    onDragOver={(e) => { if (dragRow) e.preventDefault(); }}
-                   onDrop={(e) => { e.preventDefault(); if (dragRow) { moveRow(dragRow, g.key); setDragRow(null); } }}>
+                   onDrop={(e) => { e.preventDefault(); if (dragRow) { moveRow(dragRow, v.key); setDragRow(null); } }}>
                 <div className="bulk-group__head">
                   <div>
-                    <b>Rapor {gi + 1}</b> · {g.il || '—'} / {g.ilce || (g.mahalle ? `(${g.mahalle} — ilçe Excel'de yok)` : '—')}
-                    <span className="muted"> · {g.rows.length} taşınmaz{(cost?.subsetCount ?? 1) > 1 ? ` · ${cost!.subsetCount} indirim alt kümesi` : ''}</span>
+                    <b>Rapor {gi + 1}</b> · {v.title}
+                    <span className="muted"> · {v.rows.length} taşınmaz</span>
+                    {v.cost && (v.cost.tebligCompliant
+                      ? <span className="badge badge--ok" title="Tebliğin kendiliğinden kurduğu grup">tebliğ</span>
+                      : v.rows.length > 1 && <span className="badge badge--warn" title="Kullanıcı birleştirmesi — tebliğ varsayılanından ayrıldınız">özel rapor</span>)}
                   </div>
                   <div className="bulk-group__tools">
-                    <select value={g.aliasName ?? ''} onChange={(e) => setGroupAlias(g.key, e.target.value)}
-                            className={g.aliasName ? '' : 'input--warn'} title="Hizmet türü">
-                      <option value="">Tür seçiniz…</option>
-                      {serviceAliases.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
-                    </select>
                     <select value="" title="Bu raporu başka raporla birleştir"
-                            onChange={(e) => { if (e.target.value) mergeGroup(g.key, e.target.value); }}>
+                            onChange={(e) => { if (e.target.value) mergeGroup(v.key, e.target.value); }}>
                       <option value="">Birleştir…</option>
-                      {groups.filter((x) => x.key !== g.key).map((x) => (
-                        <option key={x.key} value={x.key}>Rapor {groups.indexOf(x) + 1} ({x.ilce || x.mahalle})</option>
+                      {views.filter((x) => x.key !== v.key).map((x) => (
+                        <option key={x.key} value={x.key}>Rapor {views.indexOf(x) + 1} ({x.title})</option>
                       ))}
                     </select>
-                    <button type="button" className="b-del" title="Raporu sil" onClick={() => deleteGroup(g.key)}>✕</button>
+                    <button type="button" className="b-del" title="Raporu sil" onClick={() => deleteGroup(v.key)}>✕</button>
                   </div>
                 </div>
 
                 <div className="bulk-rows">
-                  <div className="bulk-row bulk-row--head">
-                    <span>Mahalle</span><span>Ada/Parsel</span><span>Nitelik (Excel)</span><span>Alan m²</span><span>Rapor</span>
+                  <div className="bulk-row bulk-row--head bulk-row--v3">
+                    <span>Tür</span><span>Mahalle</span><span>Ada</span><span>Parsel</span><span>Alan m²</span>
+                    <span>Taban</span><span>%</span><span>Bel. Harcı</span><span>Tapu</span><span>Rapor</span>
                   </div>
-                  {g.rows.map((r) => (
-                    <div className={`bulk-row${dragRow === r.id ? ' bulk-row--drag' : ''}`} key={r.id}
-                         draggable
-                         onDragStart={() => setDragRow(r.id)}
-                         onDragEnd={() => setDragRow(null)}>
-                      <span>
-                        {r.inherited && <span title="Konum üst satırdan miras alındı">⤷ </span>}
-                        {r.mahalle || '—'}
-                        {r.fuzzyNote && <span className="muted" title={r.fuzzyNote}> ✎</span>}
-                      </span>
-                      <span>{[r.ada, r.parsel].filter(Boolean).join('/') || '—'}</span>
-                      <span className="muted" title={r.nitelik}>{r.nitelik || '—'}</span>
-                      <span>
-                        <input type="number" inputMode="decimal" value={r.alan ?? ''} placeholder="—"
-                               onChange={(e) => setRowArea(r.id, e.target.value === '' ? undefined : Number(e.target.value))} />
-                      </span>
-                      <span>
-                        <select value={r.groupKey} onChange={(e) => moveRow(r.id, e.target.value)}>
-                          {groups.map((gg, i2) => (
-                            <option key={gg.key} value={gg.key}>Rapor {i2 + 1}</option>
-                          ))}
-                          <option value="__new__">➕ yeni rapor</option>
-                        </select>
-                      </span>
-                    </div>
-                  ))}
+                  {v.rows.map((r) => {
+                    const rm = getRM(r.id);
+                    const cr = v.cost?.rows.find((x) => x.row.id === r.id);
+                    return (
+                      <div className={`bulk-row bulk-row--v3${dragRow === r.id ? ' bulk-row--drag' : ''}`} key={r.id}
+                           draggable onDragStart={() => setDragRow(r.id)} onDragEnd={() => setDragRow(null)}>
+                        <span>
+                          <select value={r.aliasName ?? ''} className={r.aliasName ? '' : 'input--warn'}
+                                  title={r.nitelik ? `Excel: ${r.nitelik}` : 'Tür seçiniz'}
+                                  onChange={(e) => patchRow(r.id, { aliasName: e.target.value || null })}>
+                            <option value="">Tür…</option>
+                            {serviceAliases.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+                          </select>
+                        </span>
+                        <span>
+                          {r.inherited && <span title="Konum üst satırdan miras alındı">⤷</span>}
+                          <input value={r.mahalle} placeholder="—"
+                                 onChange={(e) => patchRow(r.id, { mahalle: e.target.value })} />
+                          {r.fuzzyNote && <span className="muted" title={r.fuzzyNote}>✎</span>}
+                        </span>
+                        <span><input value={r.ada} placeholder="—" onChange={(e) => patchRow(r.id, { ada: e.target.value })} /></span>
+                        <span><input value={r.parsel} placeholder="—" onChange={(e) => patchRow(r.id, { parsel: e.target.value })} /></span>
+                        <span>
+                          <input type="number" inputMode="decimal" value={r.alan ?? ''} placeholder="—"
+                                 onChange={(e) => patchRow(r.id, { alan: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                        </span>
+                        <span className="bulk-cellnum" title="Taban ücret (tarife, %100)">{cr ? formatTL(cr.baseFee) : '—'}</span>
+                        <span>
+                          <input type="number" className="bulk-mini" min={0} max={100}
+                                 value={rm.pct ?? cr?.defaultPct ?? 100}
+                                 title={`Önerilen: %${cr?.defaultPct ?? 100} — serbestçe değiştirilebilir`}
+                                 onChange={(e) => setRM(r.id, { pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+                          {rm.pct != null && rm.pct !== cr?.defaultPct && (
+                            <button type="button" className="linklike" title="Önerilen yüzdeye dön"
+                                    onClick={() => setRM(r.id, { pct: null })}>↺</button>
+                          )}
+                        </span>
+                        <span>
+                          <input type="number" className="bulk-mini bulk-mini--wide" min={0}
+                                 value={cr?.municipalityFee ?? 0}
+                                 title={cr?.alias?.groupId === 'G1' ? 'Arsa/Tarla — harç uygulanmaz (elle girilebilir)' : 'Elle değiştirilebilir / sıfırlanabilir'}
+                                 onChange={(e) => setRM(r.id, { municipalityFee: Math.max(0, Number(e.target.value) || 0) })} />
+                          {rm.municipalityFee != null && (
+                            <button type="button" className="linklike" title="Otomatiğe dön"
+                                    onClick={() => setRM(r.id, { municipalityFee: null })}>↺</button>
+                          )}
+                        </span>
+                        <span>
+                          <input type="number" className="bulk-mini" min={0} value={rm.deeds}
+                                 title='Tapu (TAKBİS) adedi — "TAKBİS almayın" için 0 yazın'
+                                 onChange={(e) => setRM(r.id, { deeds: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />
+                        </span>
+                        <span>
+                          <select value={r.groupKey} onChange={(e) => moveRow(r.id, e.target.value)}>
+                            {views.map((gg, i2) => <option key={gg.key} value={gg.key}>Rapor {i2 + 1}</option>)}
+                            <option value="__new__">➕ yeni</option>
+                          </select>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* OFİS maliyet dökümü — her kalem AYRI satır; kapatılabilir/ezilebilir */}
-                {cost && (
+                {v.cost && (
                   <div className="bulk-cost">
                     <div className="bulk-cost__row">
-                      <span>Asgari hizmet bedeli (tarife{cost.bulkDiscountTotal > 0 ? ` · toplu değerleme indirimi −${formatTL(cost.bulkDiscountTotal)}` : ''})</span>
-                      <b>{formatTL(cost.serviceSubtotal)}</b>
+                      <span>Hizmet bedeli (satır yüzdeleriyle)</span>
+                      <b>{formatTL(v.cost.serviceTotal)}</b>
                     </div>
-                    <div className="bulk-cost__row">
+                    <div className="bulk-cost__row"><span>Belediye harçları (taşınmaz başına)</span><b>{formatTL(v.cost.municipalityTotal)}</b></div>
+                    <div className="bulk-cost__row"><span>Tapu ücretleri (taşınmaz başına)</span><b>{formatTL(v.cost.titleDeedTotal)}</b></div>
+                    {([['Ulaşım ücreti', 'transport', v.cost.transportFee, settings?.transportFeePerReport],
+                       ['TDUB payı', 'union', v.cost.unionFee, settings?.unionFeePerReport],
+                       ['Bilgi merkezi payı', 'infoCenter', v.cost.infoCenterFee, settings?.infoCenterFeePerReport]] as const
+                    ).map(([lbl, k, amt, def]) => (
+                      <div key={k} className={`bulk-cost__row${v.gm[k] ? '' : ' bulk-cost__row--off'}`}>
+                        <span>
+                          <input type="checkbox" checked={v.gm[k]} title="Kalemi aç/kapat"
+                                 onChange={() => setGM(v.key, { [k]: !v.gm[k] } as Partial<GroupMeta>)} />
+                          {' '}{lbl}
+                        </span>
+                        <b>{v.gm[k] ? formatTL(amt || def || 0) : '0,00 TL'}</b>
+                      </div>
+                    ))}
+                    <div className="bulk-cost__row"><span>Hesaplanan maliyet (KDV hariç)</span><b>{formatTL(v.cost.computedSubtotal)}</b></div>
+                    <div className="bulk-cost__row bulk-cost__total">
                       <span>
-                        Tapu ücreti ·{' '}
-                        <input type="number" className="bulk-mini" min={0} value={deeds}
-                               title="Tapu (TAKBİS) adedi — bir iş için birden fazla belge çekilebilir"
-                               onChange={(e) => setGroupMeta(g.key, { titleDeedCount: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />
-                        {' '}tapu
-                        {m.titleDeedCount != null && m.titleDeedCount !== g.rows.length && (
-                          <button type="button" className="linklike" onClick={() => setGroupMeta(g.key, { titleDeedCount: null })}>↺ {g.rows.length}</button>
+                        Teklif tutarı (KDV hariç) ·{' '}
+                        <input type="number" className="bulk-mini bulk-mini--wide" min={0}
+                               value={v.gm.proposal ?? v.cost.computedSubtotal}
+                               title="Pazarlıklı teklif için elle ezin; maliyet dökümü yukarıda görünmeye devam eder"
+                               onChange={(e) => setGM(v.key, { proposal: Math.max(0, Number(e.target.value) || 0) })} />
+                        {v.gm.proposal != null && (
+                          <button type="button" className="linklike" onClick={() => setGM(v.key, { proposal: null })}>↺ hesaplanan</button>
                         )}
                       </span>
-                      <b>{formatTL(cost.titleDeedTotal)}</b>
+                      <b>{formatTL(v.cost.subtotal)}</b>
                     </div>
-                    <div className="bulk-cost__row">
-                      <span>
-                        Belediye harcı ·{' '}
-                        <input type="number" className="bulk-mini bulk-mini--wide" min={0} value={fee}
-                               title="Sıfırlanabilir / elle değiştirilebilir — otomatik değer zorunlu değildir"
-                               onChange={(e) => setGroupMeta(g.key, { municipalityFee: Math.max(0, Number(e.target.value) || 0) })} />
-                        {arsaTarla && <em className="muted"> (Arsa/Tarla — uygulanmaz)</em>}
-                        {!arsaTarla && m.municipalityFee == null && autoFee > 0 && <em className="muted"> (kayıttan)</em>}
-                        {!arsaTarla && m.municipalityFee == null && autoFee === 0 && <em className="muted"> (kayıt yok)</em>}
-                        {m.municipalityFee != null && (
-                          <button type="button" className="linklike" onClick={() => setGroupMeta(g.key, { municipalityFee: null })}>↺ otomatik</button>
-                        )}
-                      </span>
-                      <b>{formatTL(cost.municipalityFee)}</b>
-                    </div>
-                    {feeLine('Ulaşım ücreti', m.transport, () => setGroupMeta(g.key, { transport: !m.transport }), cost.transportFee || (settings?.transportFeePerReport ?? 0))}
-                    {feeLine('TDUB payı', m.union, () => setGroupMeta(g.key, { union: !m.union }), cost.unionFee || (settings?.unionFeePerReport ?? 0))}
-                    {feeLine('Bilgi merkezi payı', m.infoCenter, () => setGroupMeta(g.key, { infoCenter: !m.infoCenter }), cost.infoCenterFee || (settings?.infoCenterFeePerReport ?? 0))}
-                    <div className="bulk-cost__row bulk-cost__total"><span>Rapor maliyeti (KDV hariç)</span><b>{formatTL(cost.subtotal)}</b></div>
-                    <div className="bulk-cost__row muted"><span>+ KDV %{kdvOran}</span><b>{formatTL(cost.vatAmount)}</b></div>
+                    <div className="bulk-cost__row muted"><span>+ KDV %{kdvOran}</span><b>{formatTL(v.cost.vatAmount)}</b></div>
+                    {v.cost.warnings.map((w, i) => (
+                      <div key={i} className="alert alert--warn"><AlertIcon /> {w}</div>
+                    ))}
                   </div>
-                )}
-                {!g.aliasName && (
-                  <div className="alert alert--warn"><AlertIcon /> Tür seçilmedi — bu rapor hesaplanamıyor. (Nitelik yanıltıcı olabilir; iş arsa değerlemesiyse "Arsa" seçin.)</div>
                 )}
               </div>
             ))}
@@ -425,7 +446,7 @@ export function BulkImportPage() {
             </p>
             <div className="bulk-summary">
               <span>{groups.length} rapor · {rows.length} taşınmaz{customer ? ` · ${customer}` : ''}</span>
-              <b>Toplam maliyet (KDV hariç): {formatTL(totalSubtotal)}</b>
+              <b>Toplam teklif (KDV hariç): {formatTL(totalSubtotal)}</b>
             </div>
             <button type="button" className="btn btn--primary" onClick={approveAndSend} disabled={!tariff || groups.length === 0}>
               ✔ Onayla ve Çoklu Teklife Aktar

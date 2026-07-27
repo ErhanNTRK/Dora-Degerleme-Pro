@@ -1,55 +1,49 @@
-# Toplu Excel v2 — Akıllı Teklif Hazırlama Ekranı (Yükleme Paketi)
+# Toplu Excel v3 — Saf Tebliğ + Tam Kullanıcı Kontrolü (Yükleme Paketi)
 
-Doğrulama (bu paketin çıktığı kopyada): `npx tsc -b` → 0 hata ·
-`npm run test` → **112/112** (önceki 78 + yeni 34) · `npm run build` → başarılı ·
-oxlint (bu paketin dosyaları) → 0 hata. Hesaplama motoruna (src/engine)
-DOKUNULMAMIŞTIR. v1 Toplu Excel'in üzerine gelir; rota ve menü aynıdır
-(/toplu-yukleme — "Excel"), ikinci bir ekran doğmaz.
+Doğrulama: `npx tsc -b` → 0 hata · `npm run test` → **119/119** ·
+`npm run build` → başarılı · oxlint (paket dosyaları) → 0 hata.
+Hesaplama motoruna (src/engine) DOKUNULMAMIŞTIR. v2'nin üzerine gelir;
+rota ve menü aynıdır (/toplu-yukleme — "Excel").
+
+## Kurallar (2026-07-26 oturumunda netleşen haliyle)
+- İLK ÖNERİ TAMAMEN 2026 TARİFESİNE GÖREDİR: G1 (arsa/tarla) yalnız aynı
+  il+ilçe+MAHALLEDE, G2 (bağımsız bölüm/müstakil) yalnız aynı ADA/PARSELDE
+  kendiliğinden gruplanır; diğer her şey TAŞINMAZ BAŞINA AYRI RAPOR
+  (2 ayrı parselde 2 fabrika + arsa + tarla → 4 ayrı kart).
+- BİRLEŞTİRME KULLANICININ HAKKIDIR (villa+arsası, 4-parsel-tek-kullanım gibi
+  özel raporlar): sürükle-bırak/seçici ile satırlar taşınır; sistem engellemez,
+  "özel rapor" rozetiyle işaretler. "tebliğ" rozeti koşulu kendiliğinden
+  sağlayan grupları gösterir.
+- YÜZDE MODELİ: her taşınmazın TABAN ücreti kendi tarifesinden hesaplanır;
+  çok taşınmazlı raporda en yüksek taban %100, diğerleri G2 %15 · G1 %20 ·
+  tebliğde oranı olmayanlar %20 önerilir. HER SATIRDA yüzde kutusu serbesttir
+  (%100, %50…); ↺ önerilene döner.
+- BELEDİYE HARCI TAŞINMAZ BAŞINA ayrı satırdır: G1'de uygulanmaz, diğerlerinde
+  ilçe kaydından gelir; elle değiştirilebilir/sıfırlanabilir, asla zorunlu değildir.
+- TAPU HARCI TAŞINMAZ BAŞINA BİRER gelir; her satırda artırılıp azaltılabilir
+  ("TAKBİS almayın" → 0).
+- YOL / TDUB / BİLGİ MERKEZİ rapor başına TEK'tir; kapatılabilir/sıfırlanabilir.
+- TEKLİF TUTARI rapor başına elle ezilebilir (pazarlıklı fiyat); ofis maliyet
+  dökümü yine görünür; KDV teklif tutarı üzerinden yürür.
+- MAHALLE/ADA/PARSEL hücreleri elle yazılabilir; elle yazılan esastır,
+  fuzzy/sözlük üstüne dayatmaz.
+- NİTELİK FUZZY'Sİ: TARLLLA→Tarla, OFŞS→Ofis, ARSAA→Arsa (Levenshtein;
+  belirsizlikte dayatma yok, "Tür seçiniz" uyarısı).
+- Aktarım: tek taşınmazlı ve ezmesiz raporlar Çoklu Teklif'e motora birebir
+  gider; çok taşınmazlı/yüzdeli/ezmeli raporlar tebliğ-üstü tutarlarıyla
+  sabitlenmiş satır olarak düşer (tek belediye/yol/TDUB/bilgi mantığı korunur).
+  Teklifte KDV hariç tutar + KDV %20 = genel toplam; döküm ofis görünümünde.
 
 ## Dosyalar
-
-YENİ:
-- src/bulk/fuzzy.ts (+test)            → TR katlama + Levenshtein; belirsizlikte dayatmaz
-- src/bulk/smartGroupCost.ts (+test)   → tebliğe uygun alt küme maliyeti (G1 mahalle / G2 ada-parsel)
-- src/bulk/smartParse.test.ts          → 3 gerçek müşteri formatının ANONİM golden testleri
-- public/data/mahalle-database.json    → 49.621 mahalle → ilçe sözlüğü (0,77 MB, çevrimdışı;
-                                         kaynak: github.com/nejdetkadir/il-ilce-semt-mahalleler, MIT)
-
-ÜZERİNE YAZILACAK:
-- src/bulk/excelImport.ts              → v2 akıllı katman (v1 API'si korunur)
-- src/pages/BulkImportPage.tsx         → v2 ekran (aşağıda)
-- src/proposal/multiProposalRows.ts    → tek ekleme: titleDeedCountOverride (tapu adedi ezmesi;
-                                         null iken davranış birebir eski — regresyonlar geçti)
-- src/App.css                          → yalnız dosya sonuna v2 stilleri
-
-## v2 neler yapar
-- Başlık satırını KENDİSİ bulur (2.-3. satırda olsa da); müşteri unvanını üst
-  satırdan yakalar ve düzenlenebilir alana koyar.
-- Kolonları başlık + İÇERİK analiziyle tanır ("Semt" başlıklı kolonun mahalle
-  olduğunu değerlerden anlar; sıra-numarası kolonunu alan sanmaz).
-- Yazım hatalarını fuzzy düzeltir: istanbul→İSTANBUL, Besiktas→BEŞİKTAŞ,
-  "ALAÇATI M"→ALAÇATI (✎ rozetiyle gösterir; iki aday başa başsa DAYATMAZ).
-- Birleşik "ADA/PARSEL" (1343/151, __/4544), "Eski 0 Yeni 2344" (Yeni esas),
-  nitelik içindeki gömülü m² ("741,00 m2 arsa") çözülür; boş konumlu devam
-  satırları üstten miras alır (⤷ işareti).
-- Tapu Türü eşlemesi: Kat Mülkiyeti→G2-T1; Cins Tashihi + konut→G2-T2; nitelik
-  konut değilse MAHAL NİTELİĞİ belirler. Öneri asla kilitli değildir.
-- Rapor grubu İLÇE bazlıdır (Caferağa+Moda tek rapor); toplu değerleme indirimi
-  tebliğe uygun ALT KÜMELERDE hesaplanır ve motorla doğrulanmıştır.
-- İlçe hiç yoksa AYNI MAHALLE varsayılır (ekranda açık uyarı). Yalnız mahalle
-  yazan listelerde mahalle sözlüğü ilçeyi bulur (Levent→BEŞİKTAŞ); mahalle
-  birden çok ilçedeyse seçim kullanıcıya bırakılır.
-- Her rapor kartında maliyet kalemleri AYRI satırlar: tarife bedeli (indirim
-  ayrıca görünür) · tapu (ADET ELLE DEĞİŞTİRİLEBİLİR — TAKBİS kuralı) · belediye
-  harcı (otomatik/elle/sıfır) · ulaşım · TDUB · bilgi merkezi (her biri aç/kapat).
-- Satırlar sürükle-bırak veya seçiciyle taşınır; "buraya bırak → yeni rapor"
-  alanı vardır; gruplar birleştirilir/silinir; ↺ önerilen gruplamaya döner.
-- Onayla → Çoklu Teklif kompozerine taslak düşer (kalem ayarları ve tapu adedi
-  hesaplara birebir taşınır; müşteri unvanı doldurulur). Teklif: KDV hariç
-  tutar + KDV %20 = genel toplam; maliyet dökümü ofis görünümünde.
+YENİ: src/bulk/reportCost.ts (+test — villa+arsa, %50 ezmesi, TAKBİS=0,
+teklif ezmesi goldenleri). ÜZERİNE: src/bulk/excelImport.ts (saf tebliğ
+gruplama + nitelik fuzzy), src/bulk/smartParse.test.ts, src/pages/
+BulkImportPage.tsx (v3 ekran), src/App.css (sona v3 stilleri). v2 ile gelen
+diğer dosyalar (fuzzy, smartGroupCost, mahalle-database, multiProposalRows)
+pakete tam set olarak yeniden kondu — eksik yükleme riskine karşı hepsini
+sürükleyin, aynı olanların üzerine yazılması zararsızdır.
 
 ## Yükleme
-GitHub → Dora-Degerleme-Pro → Add file → Upload files → zip içindeki `src` ve
-`public` klasörlerini sürükleyip bırak → Commit. (xlsx bağımlılığı v1'de
-eklenmişti; yeni bağımlılık yoktur.) Sonra her zamanki gibi build alıp yayın
-reposuna aktarın.
+GitHub → Dora-Degerleme-Pro → Add file → Upload files → `src` ve `public`
+klasörlerini sürükleyip bırak → Commit → build → yayın reposuna aktar.
+Yeni bağımlılık yoktur.

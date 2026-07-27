@@ -829,3 +829,15 @@
 .bulk-mini { width: 64px; padding: 3px 6px; font-size: 12.5px; }
 .bulk-mini--wide { width: 110px; }
 .linklike { border: none; background: none; color: #1d4ed8; cursor: pointer; font-size: 12px; padding: 0 4px; }
+
+/* ── Toplu Excel v3 ── */
+.bulk-row--v3 { grid-template-columns: 1.15fr 1fr 0.55fr 0.55fr 0.7fr 0.85fr 0.68fr 0.95fr 0.55fr 0.8fr; gap: 5px; }
+.bulk-row--v3 input, .bulk-row--v3 select { padding: 5px 6px; font-size: 12px; width: 100%; }
+.bulk-cellnum { font-size: 12px; font-weight: 700; text-align: right; white-space: nowrap; }
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.badge--ok { background: rgba(22,120,60,.12); color: #15803d; }
+.badge--warn { background: rgba(180,83,9,.12); color: #b45309; }
+@media (max-width: 980px) {
+  .bulk-row--v3 { grid-template-columns: 1fr 0.9fr 0.5fr 0.5fr 0.65fr 0.8fr 0.6fr 0.85fr 0.5fr 0.75fr; gap: 3px; }
+  .bulk-row--v3 input, .bulk-row--v3 select { font-size: 11px; padding: 4px 4px; }
+}

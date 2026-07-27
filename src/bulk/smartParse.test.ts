@@ -101,7 +101,7 @@ describe('Format B — müşteri unvanı, birleşik ADA/PARSEL, fill-down, fuzzy
     expect(r.rows[1].il).toBe('İZMİR');
     expect(r.rows[1].fuzzyNote).toContain('İZMİR');
   });
-  it('gruplama ilçe bazlıdır: Çeşme\'deki 3 mesken tek rapor (mahalle bölmez)', () => {
+  it('saf tebliğ: aynı 4245/1 parseldeki 3 bağımsız bölüm tek rapor (G2 ada/parsel kuralı)', () => {
     const groups = groupList(r.rows);
     const mesken = groups.find((g) => g.aliasName === 'Daire (Konut)' && g.ilce === 'ÇEŞME');
     expect(mesken?.rows).toHaveLength(2 + 1);   // 2 dolu satır + 1 fill-down devam
@@ -155,9 +155,10 @@ describe('mahalle sözlüğü — ilçe yokken mahalleden çözüm', () => {
     expect(r.rows[2].ilce).toBe('');
     expect(r.rows[2].fuzzyNote).toContain('birden çok ilçede');
   });
-  it('aynı ilçeye çözülen mahalleler aynı raporda gruplanır', () => {
+  it('saf tebliğ: aynı ilçeye çözülseler de FARKLI mahalleli arsalar AYRI raporlardır', () => {
     const groups = groupList(r.rows);
-    const besiktas = groups.find((g) => g.ilce === 'BEŞİKTAŞ');
-    expect(besiktas?.rows).toHaveLength(2);
+    const besiktasGroups = groups.filter((g) => g.rows[0]?.ilce === 'BEŞİKTAŞ');
+    expect(besiktasGroups).toHaveLength(2);          // Levent ve Etiler ayrı G1 raporları
+    expect(besiktasGroups.every((g) => g.rows.length === 1)).toBe(true);
   });
 });
