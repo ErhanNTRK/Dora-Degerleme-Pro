@@ -117,7 +117,25 @@ export function BulkImportPage() {
       }
       for (const r of await db.municipalityFees.toArray()) map.set(`${trFold(r.province)}|${trFold(r.district)}`, r.fee);
       setFees(map);
-      const result = smartParse(data, serviceAliases, ctx);
+      // Mahalle sözlüğü henüz inmemişse dosya çözümünden önce bekle (yarış durumu düzeltmesi)
+      let qi = quarterIndex;
+      if (!qi) {
+        try {
+          const res = await fetch(`${import.meta.env.BASE_URL}data/mahalle-database.json`);
+          if (res.ok) {
+            const d = await res.json();
+            qi = new Map();
+            for (const p of d.provinces ?? []) for (const t of p.districts ?? []) for (const q of t.quarters ?? []) {
+              const k = trFold(q);
+              const arr = qi.get(k) ?? [];
+              arr.push({ il: p.name, ilce: t.name });
+              qi.set(k, arr);
+            }
+            setQuarterIndex(qi);
+          }
+        } catch { /* sözlüksüz devam */ }
+      }
+      const result = smartParse(data, serviceAliases, { ...ctx, quarterIndex: qi });
       setFileName(f.name); setParsed(result); setRows(result.rows);
       setCustomer(result.customerName);
       setRowMeta(new Map()); setGroupMeta(new Map());
@@ -190,9 +208,10 @@ export function BulkImportPage() {
       const first = v.rows[0];
       const alias = first.aliasName ? serviceAliases.find((a) => a.name === first.aliasName) : undefined;
       const single = v.rows.length === 1;
-      const pure = single && c && !c.proposalOverridden
+      const rm0 = single ? getRM(v.rows[0].id) : null;
+      const pure = single && c && alias && !c.proposalOverridden
         && c.rows[0].appliedPct === 100
-        && c.rows[0].municipalityFee === (alias?.groupId === 'G1' ? 0 : c.rows[0].municipalityFee)
+        && rm0?.municipalityFee == null            // harç elle ezilmemiş (otomatik)
         && c.rows[0].deeds === 1;
       const adaParsel = v.rows.map((r) => [r.ada, r.parsel].filter(Boolean).join('/')).filter(Boolean).join(', ');
       const label = single
@@ -205,7 +224,8 @@ export function BulkImportPage() {
           id: uid(), kind: 'custom' as const, label: '',
           province: first.il, district: first.ilce,
           municipalityFee: c.rows[0].municipalityFee,
-          municipalityFeeSource: c.rows[0].municipalityFee > 0 ? 'manual' as const : null,
+          municipalityFeeSource: alias.groupId === 'G1' ? null
+            : (c.rows[0].municipalityFee > 0 ? 'database' as const : 'manual' as const),
           groupId: alias.groupId, subtypeId: alias.subtypeId,
           count: 1, area: first.alan, areas: undefined,
           bulkTogether: false, manualAmount: null,
@@ -320,68 +340,92 @@ export function BulkImportPage() {
                 </div>
 
                 <div className="bulk-rows">
-                  <div className="bulk-row bulk-row--head bulk-row--v3">
-                    <span>Tür</span><span>Mahalle</span><span>Ada</span><span>Parsel</span><span>Alan m²</span>
-                    <span>Taban</span><span>%</span><span>Bel. Harcı</span><span>Tapu</span><span>Rapor</span>
-                  </div>
                   {v.rows.map((r) => {
                     const rm = getRM(r.id);
                     const cr = v.cost?.rows.find((x) => x.row.id === r.id);
+                    const multi = v.rows.length > 1;
                     return (
-                      <div className={`bulk-row bulk-row--v3${dragRow === r.id ? ' bulk-row--drag' : ''}`} key={r.id}
+                      <div className={`prop-card${dragRow === r.id ? ' bulk-row--drag' : ''}`} key={r.id}
                            draggable onDragStart={() => setDragRow(r.id)} onDragEnd={() => setDragRow(null)}>
-                        <span>
-                          <select value={r.aliasName ?? ''} className={r.aliasName ? '' : 'input--warn'}
-                                  title={r.nitelik ? `Excel: ${r.nitelik}` : 'Tür seçiniz'}
-                                  onChange={(e) => patchRow(r.id, { aliasName: e.target.value || null })}>
-                            <option value="">Tür…</option>
-                            {serviceAliases.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
-                          </select>
-                        </span>
-                        <span>
-                          {r.inherited && <span title="Konum üst satırdan miras alındı">⤷</span>}
-                          <input value={r.mahalle} placeholder="—"
-                                 onChange={(e) => patchRow(r.id, { mahalle: e.target.value })} />
-                          {r.fuzzyNote && <span className="muted" title={r.fuzzyNote}>✎</span>}
-                        </span>
-                        <span><input value={r.ada} placeholder="—" onChange={(e) => patchRow(r.id, { ada: e.target.value })} /></span>
-                        <span><input value={r.parsel} placeholder="—" onChange={(e) => patchRow(r.id, { parsel: e.target.value })} /></span>
-                        <span>
-                          <input type="number" inputMode="decimal" value={r.alan ?? ''} placeholder="—"
-                                 onChange={(e) => patchRow(r.id, { alan: e.target.value === '' ? undefined : Number(e.target.value) })} />
-                        </span>
-                        <span className="bulk-cellnum" title="Taban ücret (tarife, %100)">{cr ? formatTL(cr.baseFee) : '—'}</span>
-                        <span>
-                          <input type="number" className="bulk-mini" min={0} max={100}
-                                 value={rm.pct ?? cr?.defaultPct ?? 100}
-                                 title={`Önerilen: %${cr?.defaultPct ?? 100} — serbestçe değiştirilebilir`}
-                                 onChange={(e) => setRM(r.id, { pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
-                          {rm.pct != null && rm.pct !== cr?.defaultPct && (
-                            <button type="button" className="linklike" title="Önerilen yüzdeye dön"
-                                    onClick={() => setRM(r.id, { pct: null })}>↺</button>
+                        <div className="prop-card__top">
+                          <label className="pfield pfield--type">
+                            <span>Tür {r.nitelik && <em title={r.nitelik}>(Excel: {r.nitelik.length > 18 ? r.nitelik.slice(0, 18) + '…' : r.nitelik})</em>}</span>
+                            <select value={r.aliasName ?? ''} className={r.aliasName ? '' : 'input--warn'}
+                                    onChange={(e) => patchRow(r.id, { aliasName: e.target.value || null })}>
+                              <option value="">Tür seçiniz…</option>
+                              {serviceAliases.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+                            </select>
+                          </label>
+                          <label className="pfield">
+                            <span>Mahalle {r.inherited && <em title="Üst satırdan miras">⤷</em>} {r.fuzzyNote && <em title={r.fuzzyNote}>✎</em>}</span>
+                            <input value={r.mahalle} placeholder="—" onChange={(e) => patchRow(r.id, { mahalle: e.target.value })} />
+                          </label>
+                          <label className="pfield pfield--s">
+                            <span>Ada</span>
+                            <input value={r.ada} placeholder="—" onChange={(e) => patchRow(r.id, { ada: e.target.value })} />
+                          </label>
+                          <label className="pfield pfield--s">
+                            <span>Parsel</span>
+                            <input value={r.parsel} placeholder="—" onChange={(e) => patchRow(r.id, { parsel: e.target.value })} />
+                          </label>
+                          <label className="pfield pfield--s">
+                            <span>Alan m²</span>
+                            <input type="number" inputMode="decimal" value={r.alan ?? ''} placeholder="—"
+                                   onChange={(e) => patchRow(r.id, { alan: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                          </label>
+                        </div>
+                        <div className="prop-card__bottom">
+                          <div className="pfield pfield--ro">
+                            <span>Taban ücret</span>
+                            <b>{cr ? formatTL(cr.baseFee) : '—'}</b>
+                          </div>
+                          {multi && (
+                            <label className="pfield pfield--s">
+                              <span>Yüzde {cr && <em>öneri: %{cr.defaultPct}</em>}</span>
+                              <span className="pfx">
+                                <i>%</i>
+                                <input type="number" min={0} max={100} value={rm.pct ?? cr?.defaultPct ?? 100}
+                                       onChange={(e) => setRM(r.id, { pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+                                {rm.pct != null && rm.pct !== cr?.defaultPct && (
+                                  <button type="button" className="linklike" title="Önerilen yüzdeye dön"
+                                          onClick={() => setRM(r.id, { pct: null })}>↺</button>
+                                )}
+                              </span>
+                            </label>
                           )}
-                        </span>
-                        <span>
-                          <input type="number" className="bulk-mini bulk-mini--wide" min={0}
-                                 value={cr?.municipalityFee ?? 0}
-                                 title={cr?.alias?.groupId === 'G1' ? 'Arsa/Tarla — harç uygulanmaz (elle girilebilir)' : 'Elle değiştirilebilir / sıfırlanabilir'}
-                                 onChange={(e) => setRM(r.id, { municipalityFee: Math.max(0, Number(e.target.value) || 0) })} />
-                          {rm.municipalityFee != null && (
-                            <button type="button" className="linklike" title="Otomatiğe dön"
-                                    onClick={() => setRM(r.id, { municipalityFee: null })}>↺</button>
+                          {cr?.feeApplies === false ? (
+                            <div className="pfield pfield--ro">
+                              <span>Belediye harcı</span>
+                              <em className="muted">aynı parsel — harç yukarıdaki satırda</em>
+                            </div>
+                          ) : (
+                            <label className="pfield">
+                              <span>Belediye harcı{cr?.alias?.groupId === 'G1' ? ' (Arsa/Tarla — uygulanmaz)' : rm.municipalityFee == null && (cr?.municipalityFee ?? 0) > 0 ? ' (kayıttan)' : ''}</span>
+                              <span className="pfx">
+                                <i>₺</i>
+                                <input type="number" min={0} value={cr?.municipalityFee ?? 0}
+                                       onChange={(e) => setRM(r.id, { municipalityFee: Math.max(0, Number(e.target.value) || 0) })} />
+                                {rm.municipalityFee != null && (
+                                  <button type="button" className="linklike" title="Otomatiğe dön"
+                                          onClick={() => setRM(r.id, { municipalityFee: null })}>↺</button>
+                                )}
+                              </span>
+                            </label>
                           )}
-                        </span>
-                        <span>
-                          <input type="number" className="bulk-mini" min={0} value={rm.deeds}
-                                 title='Tapu (TAKBİS) adedi — "TAKBİS almayın" için 0 yazın'
-                                 onChange={(e) => setRM(r.id, { deeds: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />
-                        </span>
-                        <span>
-                          <select value={r.groupKey} onChange={(e) => moveRow(r.id, e.target.value)}>
-                            {views.map((gg, i2) => <option key={gg.key} value={gg.key}>Rapor {i2 + 1}</option>)}
-                            <option value="__new__">➕ yeni</option>
-                          </select>
-                        </span>
+                          <label className="pfield pfield--s">
+                            <span>Tapu adedi</span>
+                            <input type="number" min={0} value={rm.deeds}
+                                   title='"TAKBİS almayın" için 0 yazın'
+                                   onChange={(e) => setRM(r.id, { deeds: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />
+                          </label>
+                          <label className="pfield pfield--s">
+                            <span>Rapor</span>
+                            <select value={r.groupKey} onChange={(e) => moveRow(r.id, e.target.value)}>
+                              {views.map((gg, i2) => <option key={gg.key} value={gg.key}>Rapor {i2 + 1}</option>)}
+                              <option value="__new__">➕ yeni</option>
+                            </select>
+                          </label>
+                        </div>
                       </div>
                     );
                   })}

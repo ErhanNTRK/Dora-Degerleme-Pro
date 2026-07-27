@@ -113,3 +113,25 @@ describe('computeReportV3 — yüzde modeli', () => {
     expect(c.computedSubtotal).toBeGreaterThan(0);  // maliyet dökümü yine hesaplı durur
   });
 });
+
+describe('belediye harcı — parsel başına bir kez', () => {
+  it('aynı ada/parseldeki 3 daire için harç TEK; farklı parsel karma raporda parsel başına birer', () => {
+    const mk = (id: string, ada: string, parsel: string) =>
+      inp(row({ id, ada, parsel, alan: 120 }), 'Daire (Konut)', { municipalityFee: 5000 });
+    const c = computeReportV3(tariff, [mk('d1', '7', '3'), mk('d2', '7', '3'), mk('d3', '7', '3')],
+      S, { transport: false, union: false, infoCenter: false, proposalOverride: null });
+    expect(c.rows.filter((x) => x.feeApplies)).toHaveLength(1);
+    expect(c.municipalityTotal).toBe(5000);
+
+    const c2 = computeReportV3(tariff, [mk('a1', '7', '3'), mk('a2', '7', '3'), mk('b1', '9', '1')],
+      S, { transport: false, union: false, infoCenter: false, proposalOverride: null });
+    expect(c2.municipalityTotal).toBe(10000);     // 7/3 bir kez + 9/1 bir kez
+  });
+  it('ada/parsel boş satırlar kendi başına parseldir (harçları toplanır)', () => {
+    const c = computeReportV3(tariff, [
+      inp(row({ id: 'x1', mahalle: 'A', alan: 500 }), 'Arsa', { municipalityFee: 0 }),
+      inp(row({ id: 'x2', alan: 100 }), 'Dükkan', { municipalityFee: 2000 }),
+    ], S, { transport: false, union: false, infoCenter: false, proposalOverride: null });
+    expect(c.municipalityTotal).toBe(2000);
+  });
+});

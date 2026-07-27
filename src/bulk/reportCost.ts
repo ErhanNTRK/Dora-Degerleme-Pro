@@ -34,6 +34,9 @@ export interface RowFeeResult extends RowFeeInput {
   appliedPct: number;
   rowServiceFee: number;
   titleDeedFee: number;
+  /** Belediye harcı bu satırda mı uygulanır? Aynı ada/parseldeki taşınmazlar için
+   *  harç PARSEL BAŞINA BİR KEZ alınır; parselin ilk satırı taşır, diğerleri false. */
+  feeApplies: boolean;
   warning?: string;
 }
 
@@ -106,15 +109,26 @@ export function computeReportV3(
     const rowServiceFee = r2(w.baseFee * appliedPct / 100);
     const titleDeedFee = r2(Math.max(0, w.deeds) * settings.titleDeedFeePerDeed);
     if (w.warning) warnings.push(w.warning);
-    return { ...w, defaultPct, appliedPct, rowServiceFee, titleDeedFee };
+    return { ...w, defaultPct, appliedPct, rowServiceFee, titleDeedFee, feeApplies: true };
   });
+
+  /* Belediye harcı PARSEL BAŞINA bir kez: aynı ada/parseli paylaşan satırlardan
+     yalnız ilki harcı taşır (ada/parsel boşsa satır kendi başına parseldir). */
+  const seenParcel = new Set<string>();
+  for (const x of rows) {
+    const key = (x.row.ada || x.row.parsel)
+      ? `${x.row.il}|${x.row.ilce}|${x.row.ada}/${x.row.parsel}`
+      : `solo|${x.row.id}`;
+    if (seenParcel.has(key)) x.feeApplies = false;
+    else seenParcel.add(key);
+  }
 
   if (rows.length >= 201) {
     warnings.push('201+ taşınmaz: tarifedeki 511.500 TL sabit ücret satırını elle kontrol edin.');
   }
 
   const serviceTotal = r2(rows.reduce((s, x) => s + x.rowServiceFee, 0));
-  const municipalityTotal = r2(rows.reduce((s, x) => s + Math.max(0, x.municipalityFee), 0));
+  const municipalityTotal = r2(rows.reduce((s, x) => s + (x.feeApplies ? Math.max(0, x.municipalityFee) : 0), 0));
   const titleDeedTotal = r2(rows.reduce((s, x) => s + x.titleDeedFee, 0));
   const transportFee = opts.transport ? settings.transportFeePerReport : 0;
   const unionFee = opts.union ? settings.unionFeePerReport : 0;

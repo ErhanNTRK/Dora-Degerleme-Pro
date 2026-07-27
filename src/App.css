@@ -841,3 +841,28 @@
   .bulk-row--v3 { grid-template-columns: 1fr 0.9fr 0.5fr 0.5fr 0.65fr 0.8fr 0.6fr 0.85fr 0.5fr 0.75fr; gap: 3px; }
   .bulk-row--v3 input, .bulk-row--v3 select { font-size: 11px; padding: 4px 4px; }
 }
+
+/* ── Toplu Excel FINAL: iki katlı ferah taşınmaz kartları ── */
+.prop-card { border: 1px solid var(--line, #e3e7ee); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--card-bg, #fff); cursor: grab; }
+.prop-card:active { cursor: grabbing; }
+.prop-card__top, .prop-card__bottom { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.prop-card__bottom { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line, #e3e7ee); }
+.pfield { display: flex; flex-direction: column; gap: 3px; min-width: 90px; flex: 1; }
+.pfield--type { flex: 2; min-width: 200px; }
+.pfield--s { flex: 0 0 auto; width: 108px; }
+.pfield > span { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; opacity: .62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pfield > span em { text-transform: none; font-weight: 600; font-style: normal; opacity: .85; }
+.pfield input, .pfield select { padding: 8px 9px; font-size: 13.5px; width: 100%; border: 1.5px solid #c7cfdb; border-radius: 8px; background: #fff; }
+.pfield input:focus, .pfield select:focus { border-color: var(--navy, #0f2a47); outline: none; }
+.pfield--ro { flex: 0 0 auto; min-width: 130px; }
+.pfield--ro b { font-size: 14px; padding: 8px 0; white-space: nowrap; }
+.pfield--ro em { font-size: 12px; padding: 9px 0; }
+.pfx { display: flex; align-items: center; gap: 4px; }
+.pfx i { font-style: normal; font-weight: 700; opacity: .55; }
+.pfx input { flex: 1; }
+@media (max-width: 760px) {
+  .pfield--s { width: 31%; }
+  .pfield--type, .pfield { min-width: 46%; }
+}
+[data-theme="dark"] .prop-card { background: rgba(255,255,255,.03); }
+[data-theme="dark"] .pfield input, [data-theme="dark"] .pfield select { background: rgba(255,255,255,.06); border-color: #3a4a5e; color: inherit; }
