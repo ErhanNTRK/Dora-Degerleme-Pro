@@ -57,6 +57,9 @@ export interface ProposalRow {
   transportFeeOverride?: number | null;
   infoCenterFeeOverride?: number | null;
   unionFeeOverride?: number | null;
+  /** Uzmanın yazdığı KDV DAHİL satır tutarı (ör. 80.000). Doluysa manualAmount bundan türetilen
+   *  KDV hariç tutardır; tüm satırlarda doluysa toplamlar kuruşsuz dengelenir. */
+  grossAmount?: number | null;
   /** İsteğe bağlı bina / proje adı (ör. "Dora Plaza"); belgede satır adının başına eklenir. */
   buildingName?: string;
   mahalle?: string;
@@ -155,6 +158,45 @@ export function computeRow(tariff: Tariff, row: ProposalRow, settings: Calculati
   const subtotal =
     Math.round((parts.base + parts.transport + parts.deed + parts.municipality + parts.infoCenter + parts.union + result.otherFeesTotal) * 100) / 100;
   return { subtotal, warnings: result.warnings, result, parts };
+}
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+
+export interface RowMoneyInput {
+  /** Müşteriye giden KDV hariç satır tutarı. */
+  net: number;
+  /** Uzmanın yazdığı KDV dahil tutar (yoksa null/undefined). */
+  gross?: number | null;
+}
+
+export interface RowMoneyResult {
+  nets: number[];
+  grosses: number[];
+  /** Yalnızca TÜM satırlarda KDV dahil tutar girilmişse dolu: Genel Toplam bu tutardır. */
+  grossTotal?: number;
+}
+
+/**
+ * Satır tutarlarını netleştirir. Tüm satırlarda KDV dahil tutar yazılmışsa Genel Toplam bu
+ * tutarların tam toplamıdır (ör. 80.000 + 65.000 + 65.000 = 210.000); KDV hariç toplam
+ * gross/(1+oran) olur ve satırlardaki 1 kuruşluk yuvarlama farkı son satırda dengelenir.
+ * Aksi halde her satırın KDV dahil değeri net × (1+oran) olarak (yazılmışsa yazılan) gösterilir.
+ */
+export function computeRowMoney(items: RowMoneyInput[], vatRatePercent: number): RowMoneyResult {
+  const f = 1 + vatRatePercent / 100;
+  if (items.length > 0 && items.every((it) => it.gross !== null && it.gross !== undefined)) {
+    const grosses = items.map((it) => it.gross as number);
+    const grossTotal = r2(grosses.reduce((s, g) => s + g, 0));
+    const netTotal = r2(grossTotal / f);
+    const nets = grosses.map((g) => r2(g / f));
+    const diff = r2(netTotal - nets.reduce((s, n) => s + n, 0));
+    nets[nets.length - 1] = r2(nets[nets.length - 1] + diff);
+    return { nets, grosses, grossTotal };
+  }
+  return {
+    nets: items.map((it) => it.net),
+    grosses: items.map((it) => (it.gross !== null && it.gross !== undefined ? it.gross : r2(it.net * f))),
+  };
 }
 
 /** Adet > 1 olan satırı, her taşınmaz ayrı rapor olacak şekilde ayrı satırlara böler. */

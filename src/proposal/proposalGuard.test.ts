@@ -178,3 +178,11 @@ describe('buildProposalContent — iç kalem sızıntısı yok', () => {
     }
   });
 });
+
+describe('computeProposalPricing — sabit KDV dahil toplam', () => {
+  it('Genel Toplam verilen tutardır, KDV farktan çıkar', () => {
+    const p = computeProposalPricing(175000, 20, 210000);
+    expect(p.grandTotal).toBe(210000);
+    expect(p.vatAmount).toBe(35000);
+  });
+});

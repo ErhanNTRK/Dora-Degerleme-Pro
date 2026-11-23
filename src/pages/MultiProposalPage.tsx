@@ -18,6 +18,7 @@ import {
   rowEffectiveAmount,
   findCrossRowIssues,
   mergeRows,
+  computeRowMoney,
   splitRowPerProperty,
   type ProposalRow,
 } from '../proposal/multiProposalRows';
@@ -180,19 +181,25 @@ export function MultiProposalPage() {
   }
 
   const vatRatePct = settings?.vatRatePercent ?? 20;
+  /** Net/brüt satır tutarları: KDV dahil rakam yazılmışsa toplamlar kuruşsuz dengelenir. */
+  const money = useMemo(
+    () => computeRowMoney(rows.map((r) => ({ net: customerAmount(r), gross: r.manualAmount !== null ? r.grossAmount : null })), vatRatePct),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, computations, vatRatePct]
+  );
+
   const feeItems: ServiceFeeItem[] = useMemo(() => {
     if (!tariff) return [];
-    return rows.map((r) => ({
+    return rows.map((r, i) => ({
       label: rowDocumentLabel(r, tariff, serviceAliases),
-      amount: customerAmount(r),
-      ...(showItemVat ? { grossAmount: Math.round(customerAmount(r) * (1 + vatRatePct / 100) * 100) / 100 } : {}),
+      amount: money.nets[i],
+      ...(showItemVat ? { grossAmount: money.grosses[i] } : {}),
     }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, tariff, computations, serviceAliases, showItemVat]);
+  }, [rows, tariff, money, serviceAliases, showItemVat]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
   /** Ofis içi döküm tablosu: satır başına baz ücret + her harç kalemi ve sütun toplamları. */
-  const breakdownRows = rows.map((r) => {
+  const breakdownRows = rows.map((r, ri) => {
     const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
     const pt = c.parts;
     return {
@@ -208,7 +215,8 @@ export function MultiProposalPage() {
       infoCenter: pt?.infoCenter ?? 0,
       union: pt?.union ?? 0,
       calc: c.subtotal,
-      total: customerAmount(r),
+      total: money.nets[ri],
+      gross: money.grosses[ri],
     };
   });
   const sumOf = (k: 'base' | 'transport' | 'deed' | 'municipality' | 'infoCenter' | 'union' | 'calc' | 'total') =>
@@ -218,7 +226,7 @@ export function MultiProposalPage() {
     infoCenter: sumOf('infoCenter'), union: sumOf('union'), calc: sumOf('calc'), total: sumOf('total'),
   };
   const vatRate = settings?.vatRatePercent ?? 20;
-  const pricing = rows.length > 0 ? computeProposalPricing(totalAmount, vatRate) : null;
+  const pricing = rows.length > 0 ? computeProposalPricing(totalAmount, vatRate, money.grossTotal) : null;
   const tariffYear = tariff?.tariffYear ?? new Date().getFullYear();
 
   const contentOptions = {
@@ -635,7 +643,7 @@ export function MultiProposalPage() {
                                 inputMode="decimal"
                                 min={0}
                                 value={amount}
-                                onChange={(e) => updateRow(row.id, { [key]: e.target.value === '' ? 0 : Number(e.target.value), manualAmount: null })}
+                                onChange={(e) => updateRow(row.id, { [key]: e.target.value === '' ? 0 : Number(e.target.value), manualAmount: null, grossAmount: null })}
                               />
                               {edited && (
                                 <button type="button" className="remove-btn" style={{ padding: 0, whiteSpace: 'nowrap' }} onClick={() => updateRow(row.id, { [key]: null })}>Otomatik</button>
@@ -683,13 +691,35 @@ export function MultiProposalPage() {
                   inputMode="decimal"
                   min={0}
                   value={effAmount}
-                  onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value) })}
+                  onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value), grossAmount: null })}
                 />
                 <span className="field__hint">
                   {row.manualAmount !== null ? (
-                    <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
+                    <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null, grossAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
                   ) : (
                     'Harçlar dahil otomatik hesaplandı. Yuvarlamak veya değiştirmek için tutarı kendiniz yazın; hesaplama etkilenmez.'
+                  )}
+                </span>
+              </div>
+
+              <div className="field">
+                <label className="field__label">KDV Dahil Tutar (TL) — pazarlıkla netleşen rakamı buraya yazın</label>
+                <input
+                  className="input"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={money.grosses[idx] ?? ''}
+                  onChange={(e) => {
+                    const g = Number(e.target.value);
+                    updateRow(row.id, { grossAmount: g, manualAmount: Math.round((g / (1 + vatRatePct / 100)) * 100) / 100 });
+                  }}
+                />
+                <span className="field__hint">
+                  {row.grossAmount !== null && row.grossAmount !== undefined ? (
+                    <>KDV hariç tutar otomatik bulunur. Tüm satırlara KDV dahil tutar yazarsanız Genel Toplam bu tutarların tam toplamı olur, kuruş farkı kalmaz. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null, grossAmount: null })}>Otomatik hesaba dön</button></>
+                  ) : (
+                    `Otomatik: KDV hariç tutar × ${(1 + vatRatePct / 100).toLocaleString('tr-TR')}. Yuvarlak bir KDV dahil rakam yazarsanız KDV hariç tutar ondan hesaplanır.`
                   )}
                 </span>
               </div>
@@ -756,7 +786,7 @@ export function MultiProposalPage() {
                           {b.detail && <div style={{ fontSize: 11, opacity: 0.65 }}>{fmt(b.infoCenter)} + {fmt(b.union)}</div>}
                         </td>
                         <td style={{ ...cell, fontWeight: 700 }}>{fmt(b.total)}{b.total !== b.calc && ' ✎'}</td>
-                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(Math.round(b.total * (1 + vatRate / 100) * 100) / 100)}</td>
+                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(b.gross)}</td>
                       </tr>
                     );
                   })}

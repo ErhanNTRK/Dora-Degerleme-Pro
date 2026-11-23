@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import tariffJson from '../../public/data/tariff-2026.json';
 import type { Tariff } from '../types/tariff';
-import { createEmptyRow, computeRow, rowDocumentLabel, rowEffectiveAmount, splitRowPerProperty } from './multiProposalRows';
+import { createEmptyRow, computeRow, rowDocumentLabel, rowEffectiveAmount, splitRowPerProperty, computeRowMoney } from './multiProposalRows';
 
 const tariff = tariffJson as unknown as Tariff;
 const settings = {
@@ -120,5 +120,20 @@ describe('kalem bazlı elle giriş ve satır bölme', () => {
     expect(out.map((x) => x.area)).toEqual([100, 200, 300]);
     expect(out.every((x) => x.count === 1 && x.areas === undefined)).toBe(true);
     expect(new Set(out.map((x) => x.id)).size).toBe(3);
+  });
+});
+
+describe('computeRowMoney — KDV dahil rakamlar kuruşsuz', () => {
+  it('80.000 + 65.000 + 65.000 KDV dahil → Genel Toplam 210.000, net toplam 175.000,00', () => {
+    const m = computeRowMoney([{ net: 0, gross: 80000 }, { net: 0, gross: 65000 }, { net: 0, gross: 65000 }], 20);
+    expect(m.grossTotal).toBe(210000);
+    expect(m.grosses).toEqual([80000, 65000, 65000]);
+    expect(m.nets).toEqual([66666.67, 54166.67, 54166.66]);
+    expect(Math.round(m.nets.reduce((s, n) => s + n, 0) * 100) / 100).toBe(175000);
+  });
+  it('bir satırda bile KDV dahil yoksa Genel Toplam serbest bırakılmaz; brüt = net × 1,2', () => {
+    const m = computeRowMoney([{ net: 1000, gross: null }, { net: 2000 }], 20);
+    expect(m.grossTotal).toBeUndefined();
+    expect(m.grosses).toEqual([1200, 2400]);
   });
 });

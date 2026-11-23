@@ -18,7 +18,11 @@ export interface ProposalPricing {
  * Teklif fiyatlaması, hesaplama motorunun iç kalemlerinden (tapu harcı, belediye harcı vb.)
  * tamamen bağımsızdır. Yalnızca kullanıcının girdiği Hizmet Bedeli ve KDV oranı kullanılır.
  */
-export function computeProposalPricing(offerAmount: number, vatRatePercent: number): ProposalPricing {
+export function computeProposalPricing(offerAmount: number, vatRatePercent: number, fixedGrandTotal?: number): ProposalPricing {
+  if (fixedGrandTotal !== undefined) {
+    // Uzman KDV dahil toplamı yazdıysa Genel Toplam aynen bu tutardır; KDV farktan çıkar.
+    return { offerAmount, vatRatePercent, vatAmount: Math.round((fixedGrandTotal - offerAmount) * 100) / 100, grandTotal: fixedGrandTotal };
+  }
   const vatAmount = Math.round(offerAmount * (vatRatePercent / 100) * 100) / 100;
   const grandTotal = Math.round((offerAmount + vatAmount) * 100) / 100;
   return { offerAmount, vatRatePercent, vatAmount, grandTotal };
