@@ -18,6 +18,7 @@ import {
   rowEffectiveAmount,
   findCrossRowIssues,
   mergeRows,
+  splitRowPerProperty,
   type ProposalRow,
 } from '../proposal/multiProposalRows';
 import { findAliasByName } from '../types/serviceAliases';
@@ -170,17 +171,17 @@ export function MultiProposalPage() {
   /** Ofis içi döküm tablosu: satır başına baz ücret + her harç kalemi ve sütun toplamları. */
   const breakdownRows = rows.map((r) => {
     const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
-    const res = c.result;
+    const pt = c.parts;
     return {
       id: r.id,
       label: tariff ? rowDocumentLabel(r, tariff, serviceAliases) : '',
-      detail: !!res,
-      base: res ? res.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0) : 0,
-      transport: res?.transportFee ?? 0,
-      deed: res?.titleDeedFeeTotal ?? 0,
-      municipality: res?.municipalityFee ?? 0,
-      infoCenter: res?.infoCenterFee ?? 0,
-      union: res?.unionFee ?? 0,
+      detail: !!pt,
+      base: pt?.base ?? 0,
+      transport: pt?.transport ?? 0,
+      deed: pt?.deed ?? 0,
+      municipality: pt?.municipality ?? 0,
+      infoCenter: pt?.infoCenter ?? 0,
+      union: pt?.union ?? 0,
       calc: c.subtotal,
       total: customerAmount(r),
     };
@@ -228,6 +229,11 @@ export function MultiProposalPage() {
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
+  }
+
+  function splitRow(row: ProposalRow) {
+    setRows((prev) => prev.flatMap((r) => (r.id === row.id ? splitRowPerProperty(r, uid) : [r])));
+    setSaved(false);
   }
 
   function importSavedCalculation(calcId: string) {
@@ -402,6 +408,14 @@ export function MultiProposalPage() {
                   </div>
                 </div>
 
+                {row.count > 1 && (
+                  <div className="warning-banner" style={{ alignItems: 'center' }}>
+                    <AlertIcon width={18} height={18} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>Adet {row.count}: tüm taşınmazlar TEK rapor sayılır (belediye, bilgi merkezi, TDUB, yol 1 kez). Her plaza ayrı görünsün istiyorsanız ayırın.</span>
+                    <button type="button" className="btn btn--gold btn--sm" style={{ flexShrink: 0 }} onClick={() => splitRow(row)}>Her taşınmazı ayrı satıra böl</button>
+                  </div>
+                )}
+
                 {!row.serviceAlias && (
                   <div className="property-row-split">
                     <div className="field">
@@ -487,13 +501,6 @@ export function MultiProposalPage() {
                 )}
                 {(() => {
                   const official = officialDistrictFee(row.province, row.district);
-                  if (official === undefined) {
-                    return (
-                      <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
-                        Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
-                      </span>
-                    );
-                  }
                   if (typeof official === 'number') {
                     const overridden = row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined;
                     const shown = overridden ? row.municipalityFeeOverride! : official;
@@ -521,7 +528,7 @@ export function MultiProposalPage() {
                   }
                   return (
                     <div className="field">
-                      <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
+                      <label className="field__label">Belediye Harcı (TL){row.district ? ' — bu ilçe için resmi veri yok' : ' — elle girin (ilçe seçilirse otomatik gelir)'}</label>
                       <input
                         className="input"
                         type="number"
@@ -564,35 +571,40 @@ export function MultiProposalPage() {
                     <label className="field__label">Bina / Proje Adı (isteğe bağlı)</label>
                     <input className="input" placeholder="Örn: Dora Plaza" value={row.buildingName ?? ''} onChange={(e) => updateRow(row.id, { buildingName: e.target.value || undefined })} />
                   </div>
-                  {comp.result && (
+                  {comp.result && comp.parts && (
                     <div style={{ marginBottom: 12 }}>
-                      <div className="section-title" style={{ marginBottom: 6 }}>Ücret Dökümü (ofis içi — belgeye yansımaz)</div>
-                      <div className="result-row"><span className="result-row__label">Asgari Hizmet Bedeli</span><span className="result-row__value">{formatTL(comp.result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0))}</span></div>
-                      <div className="result-row"><span className="result-row__label">Tapu Harcı (×{Math.max(1, row.count)})</span><span className="result-row__value">{formatTL(comp.result.titleDeedFeeTotal)}</span></div>
-                      {comp.result.municipalityFee > 0 && (
-                        <div className="result-row"><span className="result-row__label">Belediye Harcı</span><span className="result-row__value">{formatTL(comp.result.municipalityFee)}</span></div>
-                      )}
+                      <div className="section-title" style={{ marginBottom: 6 }}>Ücret Kalemleri (ofis içi — her kalemi elle girebilirsiniz)</div>
                       {([
-                        ['Ulaşım / Yol Ücreti', 'transportFeeEnabled', comp.result.transportFee] as const,
-                        ['TDUB Birlik Payı', 'unionFeeEnabled', comp.result.unionFee] as const,
-                        ['Bilgi Merkezi Payı', 'infoCenterFeeEnabled', comp.result.infoCenterFee] as const,
-                      ]).map(([label, key, amount]) => (
-                        <div key={key} className="result-row" style={{ alignItems: 'center' }}>
-                          <span className="result-row__label">{label}</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className="result-row__value" style={{ opacity: (row[key] ?? true) ? 1 : 0.4 }}>{formatTL(amount)}</span>
-                            <button
-                              type="button"
-                              className="switch"
-                              data-checked={row[key] ?? true}
-                              onClick={() => updateRow(row.id, { [key]: !(row[key] ?? true), manualAmount: null })}
-                              aria-label={`${label} dahil et`}
-                            >
-                              <span className="switch__thumb" />
-                            </button>
-                          </span>
-                        </div>
-                      ))}
+                        ['Baz Ücret (Asgari Hizmet Bedeli)', 'baseFeeOverride', comp.parts.base] as const,
+                        ['Yol / Ulaşım Ücreti', 'transportFeeOverride', comp.parts.transport] as const,
+                        ['Tapu Harcı', 'titleDeedFeeOverride', comp.parts.deed] as const,
+                        ['Gayrimenkul Bilgi Merkezi Payı', 'infoCenterFeeOverride', comp.parts.infoCenter] as const,
+                        ['TDUB Birlik Payı', 'unionFeeOverride', comp.parts.union] as const,
+                      ]).map(([label, key, amount]) => {
+                        const edited = row[key] !== null && row[key] !== undefined;
+                        return (
+                          <div key={key} className="field" style={{ marginBottom: 8 }}>
+                            <label className="field__label">{label} (TL)</label>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <input
+                                className="input"
+                                type="number"
+                                inputMode="decimal"
+                                min={0}
+                                value={amount}
+                                onChange={(e) => updateRow(row.id, { [key]: e.target.value === '' ? 0 : Number(e.target.value), manualAmount: null })}
+                              />
+                              {edited && (
+                                <button type="button" className="remove-btn" style={{ padding: 0, whiteSpace: 'nowrap' }} onClick={() => updateRow(row.id, { [key]: null })}>Otomatik</button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="result-row">
+                        <span className="result-row__label">Belediye Harcı</span>
+                        <span className="result-row__value">{formatTL(comp.parts.municipality)}</span>
+                      </div>
                       <div className="result-row result-row--total" style={{ fontSize: 14 }}>
                         <span className="result-row__label">Satır Toplam Maliyeti</span>
                         <span className="result-row__value">{formatTL(comp.subtotal)}</span>

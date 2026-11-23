@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import tariffJson from '../../public/data/tariff-2026.json';
 import type { Tariff } from '../types/tariff';
-import { createEmptyRow, computeRow, rowDocumentLabel, rowEffectiveAmount } from './multiProposalRows';
+import { createEmptyRow, computeRow, rowDocumentLabel, rowEffectiveAmount, splitRowPerProperty } from './multiProposalRows';
 
 const tariff = tariffJson as unknown as Tariff;
 const settings = {
@@ -91,5 +91,34 @@ describe('rowEffectiveAmount ve rowDocumentLabel', () => {
     expect(label).toContain('85 m²');
     expect(label).toContain('İSTANBUL / KADIKÖY');
     expect(label).toContain('Ada 77, Parsel 12');
+  });
+});
+
+describe('kalem bazlı elle giriş ve satır bölme', () => {
+  it('yol/tapu/bilgi merkezi/TDUB/baz ücret elle girilince toplam kalemlerden hesaplanır', () => {
+    const r = row({ groupId: 'G2', subtypeId: 'G2-T1', area: 100, count: 1, municipalityFee: 1000,
+      baseFeeOverride: 20000, transportFeeOverride: 500, titleDeedFeeOverride: 300, infoCenterFeeOverride: 100, unionFeeOverride: 50 });
+    const c = computeRow(tariff, r, settings);
+    expect(c.parts).toEqual({ base: 20000, transport: 500, deed: 300, municipality: 1000, infoCenter: 100, union: 50 });
+    expect(c.subtotal).toBe(21950);
+  });
+
+  it('elle giriş yoksa otomatik sonuçla birebir aynıdır (0 dahil ezme geçerli)', () => {
+    const base = row({ groupId: 'G2', subtypeId: 'G2-T1', area: 100, count: 1, municipalityFee: 1500 });
+    const auto = computeRow(tariff, base, settings);
+    expect(auto.subtotal).toBeCloseTo(16500 + 307 + 1500 + 176 + 125 + 2645.06, 2);
+    const zeroTransport = computeRow(tariff, { ...base, transportFeeOverride: 0 }, settings);
+    expect(zeroTransport.parts?.transport).toBe(0);
+    expect(zeroTransport.subtotal).toBeCloseTo(auto.subtotal - 2645.06, 2);
+  });
+
+  it('adet 3 satır, her biri kendi alanıyla 3 ayrı rapor satırına bölünür', () => {
+    const r = row({ groupId: 'G2', subtypeId: 'G2-T1', count: 3, areas: [100, 200, 300] });
+    let n = 0;
+    const out = splitRowPerProperty(r, () => `n${++n}`);
+    expect(out).toHaveLength(3);
+    expect(out.map((x) => x.area)).toEqual([100, 200, 300]);
+    expect(out.every((x) => x.count === 1 && x.areas === undefined)).toBe(true);
+    expect(new Set(out.map((x) => x.id)).size).toBe(3);
   });
 });

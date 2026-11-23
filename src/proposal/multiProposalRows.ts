@@ -51,6 +51,12 @@ export interface ProposalRow {
   /** UI durumu: SPK grup/tür seçicisi açık mı (alias yerine gelişmiş seçim). Kalıcı değildir. */
   useSpkSelect?: boolean;
   /** SPK çapraz uyarıları ve belge satırı için konum bilgileri. */
+  /** Uzman girişi: kalem tutarlarını satır bazında elle belirler (0 dahil). null/undefined → otomatik. */
+  baseFeeOverride?: number | null;
+  titleDeedFeeOverride?: number | null;
+  transportFeeOverride?: number | null;
+  infoCenterFeeOverride?: number | null;
+  unionFeeOverride?: number | null;
   /** İsteğe bağlı bina / proje adı (ör. "Dora Plaza"); belgede satır adının başına eklenir. */
   buildingName?: string;
   mahalle?: string;
@@ -106,7 +112,19 @@ export function buildRowCalculationInput(row: ProposalRow, settings: Calculation
   };
 }
 
+/** Satırın ücret kalemleri (elle girilenler uygulanmış hâli). */
+export interface RowParts {
+  base: number;
+  transport: number;
+  deed: number;
+  municipality: number;
+  infoCenter: number;
+  union: number;
+}
+
 export interface RowComputation {
+  /** Kalem kalem döküm (yalnızca custom satırlarda). Toplam = subtotal. */
+  parts?: RowParts;
   /** Satırın müşteri tutarı varsayılanı (raporun Toplam Maliyet'i). */
   subtotal: number;
   warnings: string[];
@@ -125,7 +143,40 @@ export function computeRow(tariff: Tariff, row: ProposalRow, settings: Calculati
     infoCenterFeeEnabled: row.infoCenterFeeEnabled ?? settings.infoCenterFeeEnabled,
   };
   const result = calculate(tariff, buildRowCalculationInput(row, rowSettings));
-  return { subtotal: result.subtotal, warnings: result.warnings, result };
+  const ov = (o: number | null | undefined, auto: number) => (o !== null && o !== undefined ? Math.max(0, o) : auto);
+  const parts: RowParts = {
+    base: ov(row.baseFeeOverride, result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0)),
+    transport: ov(row.transportFeeOverride, result.transportFee),
+    deed: ov(row.titleDeedFeeOverride, result.titleDeedFeeTotal),
+    municipality: result.municipalityFee,
+    infoCenter: ov(row.infoCenterFeeOverride, result.infoCenterFee),
+    union: ov(row.unionFeeOverride, result.unionFee),
+  };
+  const subtotal =
+    Math.round((parts.base + parts.transport + parts.deed + parts.municipality + parts.infoCenter + parts.union + result.otherFeesTotal) * 100) / 100;
+  return { subtotal, warnings: result.warnings, result, parts };
+}
+
+/** Adet > 1 olan satırı, her taşınmaz ayrı rapor olacak şekilde ayrı satırlara böler. */
+export function splitRowPerProperty(row: ProposalRow, newId: () => string): ProposalRow[] {
+  const n = Math.max(1, row.count);
+  if (row.kind !== 'custom' || n < 2) return [row];
+  return Array.from({ length: n }, (_, i) => ({
+    ...row,
+    id: i === 0 ? row.id : newId(),
+    count: 1,
+    area: row.areas?.[i] ?? row.area,
+    areas: undefined,
+    titleDeedCountOverride: null,
+    manualAmount: null,
+    baseFeeOverride: null,
+    titleDeedFeeOverride: null,
+    transportFeeOverride: null,
+    infoCenterFeeOverride: null,
+    unionFeeOverride: null,
+    ada: i === 0 ? row.ada : undefined,
+    parsel: i === 0 ? row.parsel : undefined,
+  }));
 }
 
 /**
