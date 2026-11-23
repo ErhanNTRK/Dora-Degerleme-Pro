@@ -44,7 +44,6 @@ interface ComposerDraft {
   customer: typeof EMPTY_CUSTOMER_INFO;
   showFeeBreakdown: boolean;
   customParagraphs: string[] | null;
-  roundingStep?: number;
 }
 
 function readDraft(): ComposerDraft | null {
@@ -79,8 +78,6 @@ export function MultiProposalPage() {
   const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
   const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
-  /** Müşteriye gösterilen satır tutarlarını yuvarlama adımı (0 = yuvarlama yok). Gerçek maliyet ofis içinde korunur. */
-  const [roundingStep, setRoundingStep] = useState<number>(draft?.roundingStep ?? 0);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -94,18 +91,20 @@ export function MultiProposalPage() {
     const base = createEmptyRow(tariff!, uid());
     const first = serviceAliases[0];
     // Varsayılan: en yaygın hizmet türü (listenin ilki) — sahada en az dokunuş.
-    return first ? { ...base, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : base;
+    const last = rows[rows.length - 1];
+    const loc = last && last.kind === 'custom' ? { province: last.province, district: last.district } : {};
+    return first ? { ...base, ...loc, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : { ...base, ...loc };
   }
 
   // Otomatik taslak: her anlamlı değişiklikte cihaza yazılır (~anlık, veri küçük).
   useEffect(() => {
     if (rows.length === 0) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs, roundingStep } satisfies ComposerDraft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs } satisfies ComposerDraft));
     } catch {
       /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
     }
-  }, [rows, customer, showFeeBreakdown, customParagraphs, roundingStep]);
+  }, [rows, customer, showFeeBreakdown, customParagraphs]);
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
@@ -153,12 +152,9 @@ export function MultiProposalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, tariff, calcSettings, locationDb]);
 
-  /** Müşteriye gösterilecek satır tutarı: elle girilmişse o aynen; değilse gerçek maliyet,
-   *  seçili adıma yuvarlanmış hâli (ör. 45.232 → 45.000). */
+  /** Müşteriye gösterilecek satır tutarı: elle girilmişse o, değilse hesaplanan maliyet. Yuvarlama otomatik YAPILMAZ. */
   function customerAmount(r: ProposalRow): number {
-    const real = rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null });
-    if (r.manualAmount !== null || roundingStep <= 0) return real;
-    return Math.round(real / roundingStep) * roundingStep;
+    return rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null });
   }
 
   const feeItems: ServiceFeeItem[] = useMemo(() => {
@@ -168,7 +164,7 @@ export function MultiProposalPage() {
       amount: customerAmount(r),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, tariff, computations, serviceAliases, roundingStep]);
+  }, [rows, tariff, computations, serviceAliases]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
   /** Gerçek (yuvarlanmamış) toplam — yalnızca ofis içi. */
@@ -236,6 +232,12 @@ export function MultiProposalPage() {
     // Harç burada HESAPLANMAZ; resolvedRowFee her an resmi veriye taze bakar.
     // İl/ilçe değişiminde manuel giriş ve ezme sıfırlanır ki eski değer yeni ilçeye taşınmasın.
     updateRow(row.id, { province: provinceName, district: districtName, municipalityFee: 0, municipalityFeeOverride: undefined, municipalityFeeSource: null });
+  }
+
+  /** Aynı belediyedeki satırlar için il/ilçeyi tek dokunuşla hepsine kopyalar (mahalle/ada/parsel satıra özgü kalır). */
+  function applyLocationToAll(src: ProposalRow) {
+    setRows((prev) => prev.map((r) => (r.kind === 'custom' ? { ...r, province: src.province, district: src.district, municipalityFee: 0, municipalityFeeOverride: undefined, municipalityFeeSource: null } : r)));
+    setSaved(false);
   }
 
   // ---------------- Belge / kayıt ----------------
@@ -458,6 +460,11 @@ export function MultiProposalPage() {
                     </select>
                   </div>
                 </div>
+                {rows.length > 1 && row.district && (
+                  <button type="button" className="btn btn--secondary btn--sm" style={{ marginBottom: 10 }} onClick={() => applyLocationToAll(row)}>
+                    Bu il/ilçeyi tüm satırlara uygula
+                  </button>
+                )}
                 {(() => {
                   const official = officialDistrictFee(row.province, row.district);
                   if (official === undefined) {
@@ -523,19 +530,19 @@ export function MultiProposalPage() {
                 {comp.warnings.length > 0 && row.manualAmount === null && (
                   <div className="warning-banner">
                     <AlertIcon width={18} height={18} />
-                    <span>{comp.warnings[0]} Gerekirse "Konum ve Ayrıntılar"dan satır tutarını elle girin.</span>
+                    <span>{comp.warnings[0]} Gerekirse alttaki "Satır Tutarı"ndan satır tutarını elle girin.</span>
                   </div>
                 )}
               </>
             )}
 
             {/* İkincil alanlar: katlanır — telefonda ana akışı kısa tutar */}
-            <Accordion title={`Konum ve Ayrıntılar — ${locSummary}`} defaultOpen={false}>
+            <Accordion title={`Konum ve Ücret Ayrıntıları — ${locSummary}`} defaultOpen={true}>
               {row.kind === 'custom' && (
                 <>
                   {comp.result && (
                     <div style={{ marginBottom: 12 }}>
-                      <div className="section-title" style={{ marginBottom: 6 }}>Harç Dökümü (ofis içi — belgeye yansımaz)</div>
+                      <div className="section-title" style={{ marginBottom: 6 }}>Ücret Dökümü (ofis içi — belgeye yansımaz)</div>
                       <div className="result-row"><span className="result-row__label">Asgari Hizmet Bedeli</span><span className="result-row__value">{formatTL(comp.result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0))}</span></div>
                       <div className="result-row"><span className="result-row__label">Tapu Harcı (×{Math.max(1, row.count)})</span><span className="result-row__value">{formatTL(comp.result.titleDeedFeeTotal)}</span></div>
                       {comp.result.municipalityFee > 0 && (
@@ -603,7 +610,7 @@ export function MultiProposalPage() {
                   {row.manualAmount !== null ? (
                     <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
                   ) : (
-                    'Motor tarafından harçlar dahil otomatik hesaplandı; değiştirmeniz motoru etkilemez.'
+                    'Harçlar dahil otomatik hesaplandı. Yuvarlamak veya değiştirmek için tutarı kendiniz yazın; hesaplama etkilenmez.'
                   )}
                 </span>
               </div>
@@ -678,18 +685,6 @@ export function MultiProposalPage() {
               <button type="button" className="switch" data-checked={showFeeBreakdown} onClick={() => setShowFeeBreakdown((v) => !v)} aria-label="Ücretleri ayrı göster">
                 <span className="switch__thumb" />
               </button>
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field__label">Müşteri tutarını yuvarla (satır başına)</label>
-              <select className="select" value={roundingStep} onChange={(e) => setRoundingStep(Number(e.target.value))}>
-                <option value={0}>Yuvarlama yok (tam tutar)</option>
-                <option value={10}>10 TL'ye yuvarla</option>
-                <option value={50}>50 TL'ye yuvarla</option>
-                <option value={100}>100 TL'ye yuvarla</option>
-                <option value={500}>500 TL'ye yuvarla</option>
-                <option value={1000}>1.000 TL'ye yuvarla</option>
-              </select>
-              <span className="field__hint">Örn. 45.232 TL → 45.000 TL. Elle girilen satır tutarları yuvarlanmaz. Gerçek maliyet aşağıdaki ofis içi özette durur.</span>
             </div>
             <div className="result-row" style={{ marginTop: 6 }}>
               <span className="result-row__label">Toplam Maliyet</span>
