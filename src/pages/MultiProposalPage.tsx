@@ -44,6 +44,7 @@ interface ComposerDraft {
   customer: typeof EMPTY_CUSTOMER_INFO;
   showFeeBreakdown: boolean;
   customParagraphs: string[] | null;
+  roundingStep?: number;
 }
 
 function readDraft(): ComposerDraft | null {
@@ -78,6 +79,8 @@ export function MultiProposalPage() {
   const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
   const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
+  /** Müşteriye gösterilen satır tutarlarını yuvarlama adımı (0 = yuvarlama yok). Gerçek maliyet ofis içinde korunur. */
+  const [roundingStep, setRoundingStep] = useState<number>(draft?.roundingStep ?? 0);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -98,11 +101,11 @@ export function MultiProposalPage() {
   useEffect(() => {
     if (rows.length === 0) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs } satisfies ComposerDraft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs, roundingStep } satisfies ComposerDraft));
     } catch {
       /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
     }
-  }, [rows, customer, showFeeBreakdown, customParagraphs]);
+  }, [rows, customer, showFeeBreakdown, customParagraphs, roundingStep]);
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
@@ -150,15 +153,28 @@ export function MultiProposalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, tariff, calcSettings, locationDb]);
 
+  /** Müşteriye gösterilecek satır tutarı: elle girilmişse o aynen; değilse gerçek maliyet,
+   *  seçili adıma yuvarlanmış hâli (ör. 45.232 → 45.000). */
+  function customerAmount(r: ProposalRow): number {
+    const real = rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null });
+    if (r.manualAmount !== null || roundingStep <= 0) return real;
+    return Math.round(real / roundingStep) * roundingStep;
+  }
+
   const feeItems: ServiceFeeItem[] = useMemo(() => {
     if (!tariff) return [];
     return rows.map((r) => ({
       label: rowDocumentLabel(r, tariff, serviceAliases),
-      amount: rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null }),
+      amount: customerAmount(r),
     }));
-  }, [rows, tariff, computations, serviceAliases]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, tariff, computations, serviceAliases, roundingStep]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
+  /** Gerçek (yuvarlanmamış) toplam — yalnızca ofis içi. */
+  const realTotal = Math.round(
+    rows.reduce((s, r) => s + Math.max(0, rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null })), 0) * 100
+  ) / 100;
   const vatRate = settings?.vatRatePercent ?? 20;
   const pricing = rows.length > 0 ? computeProposalPricing(totalAmount, vatRate) : null;
   const tariffYear = tariff?.tariffYear ?? new Date().getFullYear();
@@ -421,6 +437,77 @@ export function MultiProposalPage() {
                   </div>
                 )}
 
+                {/* Konum: açık alanda — il/ilçe seçilince belediye harcı otomatik eklenir */}
+                <div className="property-row-split">
+                  <div className="field">
+                    <label className="field__label">İl</label>
+                    <select className="select" value={row.province} onChange={(e) => handleRowDistrictChange(row, e.target.value, '')}>
+                      <option value="">Seçiniz</option>
+                      {provinceOptions.map((p) => (
+                        <option key={p.name} value={p.name}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label className="field__label">İlçe</label>
+                    <select className="select" value={row.district} disabled={!row.province} onChange={(e) => handleRowDistrictChange(row, row.province, e.target.value)}>
+                      <option value="">Seçiniz</option>
+                      {districts.map((d) => (
+                        <option key={d.name} value={d.name}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {(() => {
+                  const official = officialDistrictFee(row.province, row.district);
+                  if (official === undefined) {
+                    return (
+                      <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
+                        Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
+                      </span>
+                    );
+                  }
+                  if (typeof official === 'number') {
+                    const overridden = row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined;
+                    const shown = overridden ? row.municipalityFeeOverride! : official;
+                    return (
+                      <div className="field">
+                        <label className="field__label">Belediye Harcı (TL)</label>
+                        <input
+                          className="input"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          value={shown === 0 ? '' : shown}
+                          placeholder="0"
+                          onChange={(e) => updateRow(row.id, { municipalityFeeOverride: e.target.value ? Number(e.target.value) : 0 })}
+                        />
+                        <span className="field__hint">
+                          {overridden ? (
+                            <>Elle değiştirildi (resmi veri: {formatTL(official)}). <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { municipalityFeeOverride: undefined })}>Resmi değere dön</button></>
+                          ) : (
+                            <>✓ Resmi veriden alındı. Zam/muafiyet durumunda üzerine yazabilirsiniz; 0 da geçerlidir.</>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="field">
+                      <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        value={row.municipalityFee || ''}
+                        onChange={(e) => updateRow(row.id, { municipalityFee: e.target.value ? Number(e.target.value) : 0 })}
+                      />
+                    </div>
+                  );
+                })()}
+
+
                 {bulkEligible && (
                   <div className="checkbox-row">
                     <div>
@@ -481,75 +568,6 @@ export function MultiProposalPage() {
                       </div>
                     </div>
                   )}
-                  <div className="property-row-split">
-                    <div className="field">
-                      <label className="field__label">İl</label>
-                      <select className="select" value={row.province} onChange={(e) => handleRowDistrictChange(row, e.target.value, '')}>
-                        <option value="">Seçiniz</option>
-                        {provinceOptions.map((p) => (
-                          <option key={p.name} value={p.name}>{p.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label className="field__label">İlçe</label>
-                      <select className="select" value={row.district} disabled={!row.province} onChange={(e) => handleRowDistrictChange(row, row.province, e.target.value)}>
-                        <option value="">Seçiniz</option>
-                        {districts.map((d) => (
-                          <option key={d.name} value={d.name}>{d.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {(() => {
-                    const official = officialDistrictFee(row.province, row.district);
-                    if (official === undefined) {
-                      return (
-                        <span className="field__hint" style={{ display: 'block', marginTop: -8, marginBottom: 10 }}>
-                          Konum seçilirse belediye harcı resmi veriden otomatik eklenir.
-                        </span>
-                      );
-                    }
-                    if (typeof official === 'number') {
-                      const overridden = row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined;
-                      const shown = overridden ? row.municipalityFeeOverride! : official;
-                      return (
-                        <div className="field">
-                          <label className="field__label">Belediye Harcı (TL)</label>
-                          <input
-                            className="input"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            value={shown === 0 ? '' : shown}
-                            placeholder="0"
-                            onChange={(e) => updateRow(row.id, { municipalityFeeOverride: e.target.value ? Number(e.target.value) : 0 })}
-                          />
-                          <span className="field__hint">
-                            {overridden ? (
-                              <>Elle değiştirildi (resmi veri: {formatTL(official)}). <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { municipalityFeeOverride: undefined })}>Resmi değere dön</button></>
-                            ) : (
-                              <>✓ Resmi veriden alındı. Zam/muafiyet durumunda üzerine yazabilirsiniz; 0 da geçerlidir.</>
-                            )}
-                          </span>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div className="field">
-                        <label className="field__label">Belediye Harcı (TL) — bu ilçe için resmi veri yok</label>
-                        <input
-                          className="input"
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          value={row.municipalityFee || ''}
-                          onChange={(e) => updateRow(row.id, { municipalityFee: e.target.value ? Number(e.target.value) : 0 })}
-                        />
-                      </div>
-                    );
-                  })()}
-
                   <div className="property-row-split">
                     <div className="field">
                       <label className="field__label">Mahalle</label>
@@ -661,6 +679,18 @@ export function MultiProposalPage() {
                 <span className="switch__thumb" />
               </button>
             </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label className="field__label">Müşteri tutarını yuvarla (satır başına)</label>
+              <select className="select" value={roundingStep} onChange={(e) => setRoundingStep(Number(e.target.value))}>
+                <option value={0}>Yuvarlama yok (tam tutar)</option>
+                <option value={10}>10 TL'ye yuvarla</option>
+                <option value={50}>50 TL'ye yuvarla</option>
+                <option value={100}>100 TL'ye yuvarla</option>
+                <option value={500}>500 TL'ye yuvarla</option>
+                <option value={1000}>1.000 TL'ye yuvarla</option>
+              </select>
+              <span className="field__hint">Örn. 45.232 TL → 45.000 TL. Elle girilen satır tutarları yuvarlanmaz. Gerçek maliyet aşağıdaki ofis içi özette durur.</span>
+            </div>
             <div className="result-row" style={{ marginTop: 6 }}>
               <span className="result-row__label">Toplam Maliyet</span>
               <span className="result-row__value">{formatTL(pricing.offerAmount)}</span>
@@ -673,6 +703,35 @@ export function MultiProposalPage() {
               <span className="result-row__label">Genel Toplam</span>
               <span className="result-row__value">{formatTL(pricing.grandTotal)}</span>
             </div>
+
+            <Accordion title={`Ofis İçi Özet (müşteriye gitmez) — Gerçek: ${formatTL(realTotal)}`} defaultOpen={false}>
+              {rows.map((r, i) => {
+                const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
+                const real = rowEffectiveAmount(r, c);
+                const shown = customerAmount(r);
+                return (
+                  <div key={r.id} style={{ marginBottom: 10 }}>
+                    <div className="result-row">
+                      <span className="result-row__label"><strong>{i + 1}.</strong> {rowDocumentLabel(r, tariff, serviceAliases)}</span>
+                    </div>
+                    {c.result && (
+                      <>
+                        <div className="result-row"><span className="result-row__label">Asgari Hizmet Bedeli</span><span className="result-row__value">{formatTL(c.result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0))}</span></div>
+                        <div className="result-row"><span className="result-row__label">Tapu Harcı</span><span className="result-row__value">{formatTL(c.result.titleDeedFeeTotal)}</span></div>
+                        <div className="result-row"><span className="result-row__label">Belediye Harcı</span><span className="result-row__value">{formatTL(c.result.municipalityFee)}</span></div>
+                        <div className="result-row"><span className="result-row__label">Ulaşım</span><span className="result-row__value">{formatTL(c.result.transportFee)}</span></div>
+                        <div className="result-row"><span className="result-row__label">TDUB Birlik Payı</span><span className="result-row__value">{formatTL(c.result.unionFee)}</span></div>
+                        <div className="result-row"><span className="result-row__label">Bilgi Merkezi Payı</span><span className="result-row__value">{formatTL(c.result.infoCenterFee)}</span></div>
+                      </>
+                    )}
+                    <div className="result-row"><span className="result-row__label">Gerçek maliyet</span><span className="result-row__value">{formatTL(real)}</span></div>
+                    <div className="result-row"><span className="result-row__label">Müşteriye giden</span><span className="result-row__value">{formatTL(shown)}{shown !== real && ` (${shown > real ? '+' : ''}${formatTL(shown - real)})`}</span></div>
+                  </div>
+                );
+              })}
+              <div className="result-row result-row--total"><span className="result-row__label">Gerçek Toplam (KDV hariç)</span><span className="result-row__value">{formatTL(realTotal)}</span></div>
+              <div className="result-row result-row--total"><span className="result-row__label">Müşteriye Giden Toplam</span><span className="result-row__value">{formatTL(totalAmount)}</span></div>
+            </Accordion>
 
             <Accordion title="Teklif Metni" defaultOpen={false}>
               <p className="field__hint" style={{ marginBottom: 10 }}>
