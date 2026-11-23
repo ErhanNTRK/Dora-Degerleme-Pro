@@ -44,7 +44,13 @@ import { shareOrDownloadFile, shareTextToWhatsApp, copyTextToClipboard, download
 const STEPS = ['Taşınmaz Bilgileri', 'Harçlar', 'Sonuç'] as const;
 type ProposalActionKind = 'pdf-download' | 'pdf-share' | 'docx-download' | 'docx-share' | 'whatsapp';
 
+/** Sıfırla: bileşeni yeniden oluşturarak tüm girişleri temizler (key değişimi). */
 export function NewCalculationPage() {
+  const [resetKey, setResetKey] = useState(0);
+  return <NewCalculationInner key={resetKey} onReset={() => setResetKey((k) => k + 1)} />;
+}
+
+function NewCalculationInner({ onReset }: { onReset: () => void }) {
   const { tariff, serviceAliases, loading } = useTariff();
   const { settings } = useSettings();
   const { locationDb } = useLocationDb();
@@ -311,6 +317,14 @@ export function NewCalculationPage() {
       <div className="page__header">
         <span className="page__eyebrow">Tek Tapu Teklifi</span>
         <h1 className="page__title">{STEPS[step]}</h1>
+        <button
+          type="button"
+          className="btn btn--secondary btn--sm"
+          style={{ marginTop: 8 }}
+          onClick={() => { if (window.confirm('Teklif sıfırlansın mı? Girdiğiniz tüm bilgiler silinir ve baştan başlarsınız.')) onReset(); }}
+        >
+          Teklifi Sıfırla
+        </button>
       </div>
 
       <div className="stepper">

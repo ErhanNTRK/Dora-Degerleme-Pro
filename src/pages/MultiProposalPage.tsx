@@ -231,6 +231,21 @@ export function MultiProposalPage() {
     });
   }
 
+  /** Tüm teklifi baştan başlatır: taslağı siler, tek boş satır ve boş müşteri bilgisiyle açar. */
+  function resetProposal() {
+    if (!tariff) return;
+    if (!window.confirm('Teklif sıfırlansın mı? Girdiğiniz tüm satırlar ve müşteri bilgileri silinir.')) return;
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* sessiz geç */ }
+    const first = serviceAliases[0];
+    const base = createEmptyRow(tariff, uid());
+    setRows([first ? { ...base, serviceAlias: first.name, groupId: first.groupId, subtypeId: first.subtypeId } : base]);
+    setCustomer({ ...EMPTY_CUSTOMER_INFO });
+    setShowFeeBreakdown(true);
+    setCustomParagraphs(null);
+    setPendingAction(null);
+    setSaved(false);
+  }
+
   function splitRow(row: ProposalRow) {
     setRows((prev) => prev.flatMap((r) => (r.id === row.id ? splitRowPerProperty(r, uid) : [r])));
     setSaved(false);
@@ -321,6 +336,9 @@ export function MultiProposalPage() {
           Her satır ayrı bir değerleme raporudur; tutarı kendi harçlarıyla otomatik hesaplanır.
           Satır ekleyin, silin, sıralayın — tek belgede profesyonel teklif hazırlayın.
         </p>
+        <button type="button" className="btn btn--secondary btn--sm" onClick={resetProposal}>
+          Teklifi Sıfırla
+        </button>
       </div>
 
       {/* ---------------- Rapor satırları ---------------- */}
