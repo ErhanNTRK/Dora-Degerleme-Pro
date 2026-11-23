@@ -40,6 +40,9 @@ jobs:
       - name: Bağımlılıkları kur (npm ci — lock dosyasıyla birebir)
         run: npm ci
 
+      - name: Testler (kırılırsa yayın yapılmaz)
+        run: npm test
+
       - name: Build (tsc + vite)
         run: npm run build
 

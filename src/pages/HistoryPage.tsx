@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { MULTI_PROPOSAL_DRAFT_KEY } from '../bulk/excelImport';
 import { db, type SavedCalculation, type SavedProposal } from '../db/database';
 import { EMPTY_COMPANY_PROFILE } from '../types/profile';
 import { formatTL, formatDateTime } from '../utils/format';
 import { HistoryIcon, TrashIcon, DownloadIcon, WhatsAppIcon, FileWordIcon, ShareIcon } from '../components/icons';
-import { generateReportPdf } from '../pdf/generateReportPdf';
-import { buildProposalPdfBlob } from '../proposal/generateProposalPdf';
-import { buildProposalDocxBlob } from '../proposal/generateProposalDocx';
+import { preloadDocs, generateReportPdfLazy, buildProposalPdfBlobLazy, buildProposalDocxBlobLazy } from '../proposal/lazyDocs';
 import { computeProposalPricing, collectPropertyDetailLines } from '../proposal/buildProposalContent';
 import { shareOrDownloadFile, shareTextToWhatsApp, downloadBlob } from '../utils/share';
 
@@ -23,6 +22,8 @@ export function HistoryPage() {
   const [calculations, setCalculations] = useState<SavedCalculation[]>([]);
   const [proposals, setProposals] = useState<SavedProposal[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  useEffect(() => { preloadDocs(); }, []);
   const [search, setSearch] = useState('');
 
   async function load() {
@@ -62,7 +63,7 @@ export function HistoryPage() {
 
   async function handleRegenerateReportPdf(item: SavedCalculation) {
     const company = (await db.companyProfile.get('company-profile')) ?? EMPTY_COMPANY_PROFILE;
-    await generateReportPdf({ title: item.title, input: item.input, result: item.result, tariffYear: item.tariffYear, company });
+    await generateReportPdfLazy({ title: item.title, input: item.input, result: item.result, tariffYear: item.tariffYear, company });
   }
 
   async function getProposalPropertyDetailLines(item: SavedProposal) {
@@ -77,10 +78,22 @@ export function HistoryPage() {
     return item.vatRatePercent ?? item.result?.vatRatePercent ?? 20;
   }
 
+  /** Kayıtlı çoklu teklifi Çoklu Teklif ekranında açar. asCopy=true → yeni teklif olarak kaydedilir. */
+  function openMultiForEdit(item: SavedProposal, asCopy: boolean) {
+    if (!item.multiDraft) return;
+    try {
+      localStorage.setItem(MULTI_PROPOSAL_DRAFT_KEY, JSON.stringify({ ...item.multiDraft, editingId: asCopy ? undefined : item.id }));
+    } catch {
+      window.alert('Teklif düzenleme için açılamadı (cihaz depolaması dolu olabilir).');
+      return;
+    }
+    navigate('/coklu-teklif');
+  }
+
   async function handleRegenerateProposalPdf(item: SavedProposal, mode: 'download' | 'share') {
     const pricing = computeProposalPricing(item.offerAmount, proposalVatRate(item));
     const propertyDetailLines = await getProposalPropertyDetailLines(item);
-    const { blob, fileName } = buildProposalPdfBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
+    const { blob, fileName } = await buildProposalPdfBlobLazy({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
     if (mode === 'download') downloadBlob(blob, fileName);
     else await shareOrDownloadFile(blob, fileName, 'application/pdf');
   }
@@ -88,7 +101,7 @@ export function HistoryPage() {
   async function handleRegenerateProposalDocx(item: SavedProposal, mode: 'download' | 'share') {
     const pricing = computeProposalPricing(item.offerAmount, proposalVatRate(item));
     const propertyDetailLines = await getProposalPropertyDetailLines(item);
-    const { blob, fileName } = await buildProposalDocxBlob({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
+    const { blob, fileName } = await buildProposalDocxBlobLazy({ customer: item.customer, company: item.company, tariffYear: item.tariffYear, pricing, propertyDetailLines, contentOptions: item.contentOptions ?? {} });
     if (mode === 'download') downloadBlob(blob, fileName);
     else await shareOrDownloadFile(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }
@@ -200,6 +213,12 @@ export function HistoryPage() {
               <button className="btn btn--secondary btn--sm" onClick={() => handleProposalWhatsApp(item)}>
                 <WhatsAppIcon width={14} height={14} /> WhatsApp
               </button>
+              {item.multiDraft && (
+                <>
+                  <button className="btn btn--secondary btn--sm" onClick={() => openMultiForEdit(item, false)}>Düzenle</button>
+                  <button className="btn btn--secondary btn--sm" onClick={() => openMultiForEdit(item, true)}>Kopyala</button>
+                </>
+              )}
               <button className="btn btn--danger btn--sm" onClick={() => handleDeleteProposal(item.id)}>
                 <TrashIcon width={14} height={14} />
               </button>

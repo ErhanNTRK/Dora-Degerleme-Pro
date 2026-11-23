@@ -1,3 +1,4 @@
+import type { ProposalRow } from '../proposal/multiProposalRows';
 import Dexie, { type Table } from 'dexie';
 import type { CalculationInput, CalculationResult } from '../types/calculation';
 import type { CompanyProfile, CustomerInfo } from '../types/profile';
@@ -37,6 +38,15 @@ export interface AppSettingsRecord {
   themeMode: 'light' | 'dark' | 'system';
 }
 
+/** Çoklu teklifin yeniden düzenlenebilmesi için kayıt anındaki tüm giriş durumu. */
+export interface MultiProposalSnapshot {
+  rows: ProposalRow[];
+  customer: CustomerInfo;
+  showFeeBreakdown: boolean;
+  showItemVat?: boolean;
+  customParagraphs: string[] | null;
+}
+
 export interface SavedProposal {
   id: string;
   createdAt: string;
@@ -56,6 +66,8 @@ export interface SavedProposal {
   bodyText: string;
   offerAmount: number;
   offerGrandTotal: number;
+  /** Yalnızca çoklu teklifte: kayıtlı teklifi "Düzenle / Kopyala" ile yeniden açmak için. */
+  multiDraft?: MultiProposalSnapshot;
   /** Belgenin birebir yeniden üretilebilmesi için içerik seçenekleri snapshot'ı. */
   contentOptions?: {
     serviceLines?: string[];

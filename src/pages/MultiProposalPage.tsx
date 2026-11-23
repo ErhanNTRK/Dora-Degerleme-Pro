@@ -22,11 +22,12 @@ import {
   splitRowPerProperty,
   type ProposalRow,
 } from '../proposal/multiProposalRows';
-import { findAliasByName } from '../types/serviceAliases';
-import { buildProposalPdfBlob } from '../proposal/generateProposalPdf';
-import { buildProposalDocxBlob } from '../proposal/generateProposalDocx';
+import { buildProposalPdfBlobLazy, buildProposalDocxBlobLazy, preloadDocs } from '../proposal/lazyDocs';
 import { ProposalPreviewModal } from '../components/ProposalPreviewModal';
 import { Accordion } from '../components/Accordion';
+import { ProposalRowCard } from '../components/ProposalRowCard';
+import { ProposalSummaryTable } from '../components/ProposalSummaryTable';
+import { buildSummaryRows, summaryTotals } from '../proposal/summaryTable';
 import { EMPTY_CUSTOMER_INFO } from '../types/profile';
 import { formatTL, uid } from '../utils/format';
 import { downloadBlob, shareOrDownloadFile, shareTextToWhatsApp } from '../utils/share';
@@ -47,6 +48,8 @@ interface ComposerDraft {
   showFeeBreakdown: boolean;
   showItemVat?: boolean;
   customParagraphs: string[] | null;
+  /** Kayıtlı bir teklif düzenleniyorsa kimliği: Kaydet o teklifi günceller. */
+  editingId?: string;
 }
 
 function readDraft(): ComposerDraft | null {
@@ -70,24 +73,6 @@ function readDraft(): ComposerDraft | null {
  * ücretleri mevzuata uygun otomatik hesaplanır. Satır tutarı istenirse elle ezilir;
  * bu yalnızca müşteri teklifini etkiler, motoru ve kayıtları etkilemez.
  */
-/** Tablo için kısa bina adı: bina adı (varsa) yoksa hizmet adı; alan eklenir. */
-function rowShortName(r: ProposalRow, tariff: NonNullable<ReturnType<typeof useTariff>['tariff']>): string {
-  const areas = (r.areas ?? []).filter((x) => x > 0);
-  const areaText = areas.length > 0 ? `${areas.reduce((t, x) => t + x, 0).toLocaleString('tr-TR')} m²` : r.area ? `${r.area.toLocaleString('tr-TR')} m²` : '';
-  const named = r.buildingName?.trim() || r.label.trim();
-  const base = named || rowDocumentLabel({ ...r, area: undefined, areas: undefined, mahalle: undefined, ada: undefined, parsel: undefined, province: '', district: '' }, tariff);
-  return [base, areaText].filter(Boolean).join(' · ');
-}
-
-/** "İlçe · Mahalle Ada/Parsel" — girilmeyenler atlanır. */
-function rowLocationText(r: ProposalRow): string {
-  const adaParsel = r.ada || r.parsel ? `${r.ada ?? ''}/${r.parsel ?? ''}` : '';
-  return [r.district, r.mahalle, adaParsel].filter(Boolean).join(' ');
-}
-
-/** Tablo için sade tutar: tam sayıysa kuruşsuz (58.485 TL), değilse 2 haneli (2.645,06 TL). */
-const fmt = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' TL';
-
 export function MultiProposalPage() {
   const { tariff, serviceAliases } = useTariff();
   const { settings } = useSettings();
@@ -101,10 +86,13 @@ export function MultiProposalPage() {
   const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
   /** Her satır tutarının altında KDV dahil tutarı da yazılsın mı (PDF/Word/metin). */
   const [showItemVat, setShowItemVat] = useState(draft?.showItemVat ?? true);
+  const [editingId, setEditingId] = useState<string | undefined>(draft?.editingId);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
   const [importSelectId, setImportSelectId] = useState('');
+
+  useEffect(() => { if (pendingAction) preloadDocs(); }, [pendingAction]);
 
   useEffect(() => {
     db.calculations.orderBy('createdAt').reverse().toArray().then(setSavedCalcs);
@@ -123,11 +111,11 @@ export function MultiProposalPage() {
   useEffect(() => {
     if (rows.length === 0) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, showItemVat, customParagraphs } satisfies ComposerDraft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, showItemVat, customParagraphs, editingId } satisfies ComposerDraft));
     } catch {
       /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
     }
-  }, [rows, customer, showFeeBreakdown, showItemVat, customParagraphs]);
+  }, [rows, customer, showFeeBreakdown, showItemVat, customParagraphs, editingId]);
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
@@ -198,33 +186,8 @@ export function MultiProposalPage() {
   }, [rows, tariff, money, serviceAliases, showItemVat]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
-  /** Ofis içi döküm tablosu: satır başına baz ücret + her harç kalemi ve sütun toplamları. */
-  const breakdownRows = rows.map((r, ri) => {
-    const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
-    const pt = c.parts;
-    return {
-      id: r.id,
-      label: tariff ? rowDocumentLabel(r, tariff, serviceAliases) : '',
-      name: tariff ? rowShortName(r, tariff) : '',
-      loc: rowLocationText(r),
-      detail: !!pt,
-      base: pt?.base ?? 0,
-      transport: pt?.transport ?? 0,
-      deed: pt?.deed ?? 0,
-      municipality: pt?.municipality ?? 0,
-      infoCenter: pt?.infoCenter ?? 0,
-      union: pt?.union ?? 0,
-      calc: c.subtotal,
-      total: money.nets[ri],
-      gross: money.grosses[ri],
-    };
-  });
-  const sumOf = (k: 'base' | 'transport' | 'deed' | 'municipality' | 'infoCenter' | 'union' | 'calc' | 'total') =>
-    Math.round(breakdownRows.reduce((t, b) => t + b[k], 0) * 100) / 100;
-  const breakdownTotals = {
-    base: sumOf('base'), transport: sumOf('transport'), deed: sumOf('deed'), municipality: sumOf('municipality'),
-    infoCenter: sumOf('infoCenter'), union: sumOf('union'), calc: sumOf('calc'), total: sumOf('total'),
-  };
+  const summaryRows = tariff ? buildSummaryRows(rows, computations, money, tariff) : [];
+  const summaryTotalsValue = summaryTotals(summaryRows, money.grossTotal);
   const vatRate = settings?.vatRatePercent ?? 20;
   const pricing = rows.length > 0 ? computeProposalPricing(totalAmount, vatRate, money.grossTotal) : null;
   const tariffYear = tariff?.tariffYear ?? new Date().getFullYear();
@@ -276,6 +239,7 @@ export function MultiProposalPage() {
     setShowFeeBreakdown(true);
     setCustomParagraphs(null);
     setPendingAction(null);
+    setEditingId(undefined);
     setSaved(false);
   }
 
@@ -318,11 +282,11 @@ export function MultiProposalPage() {
   async function executeAction(kind: ActionKind) {
     if (!pricing) return;
     if (kind === 'pdf-download' || kind === 'pdf-share') {
-      const { blob, fileName } = buildProposalPdfBlob({ customer, company, tariffYear, pricing, contentOptions });
+      const { blob, fileName } = await buildProposalPdfBlobLazy({ customer, company, tariffYear, pricing, contentOptions });
       if (kind === 'pdf-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/pdf');
     } else if (kind === 'docx-download' || kind === 'docx-share') {
-      const { blob, fileName } = await buildProposalDocxBlob({ customer, company, tariffYear, pricing, contentOptions });
+      const { blob, fileName } = await buildProposalDocxBlobLazy({ customer, company, tariffYear, pricing, contentOptions });
       if (kind === 'docx-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     } else {
@@ -338,7 +302,7 @@ export function MultiProposalPage() {
     const customerLabel = customer.companyName.trim() || customer.customerName.trim() || 'Müşteri';
     const linkedIds = rows.filter((r) => r.kind === 'saved' && r.savedCalculationId).map((r) => r.savedCalculationId!);
     await db.proposals.put({
-      id: uid(),
+      id: editingId ?? uid(),
       createdAt: new Date().toISOString(),
       title: `Çoklu Teklif — ${customerLabel} (${rows.length} rapor)`,
       kind: 'multi',
@@ -351,6 +315,7 @@ export function MultiProposalPage() {
       offerAmount: pricing.offerAmount,
       offerGrandTotal: pricing.grandTotal,
       contentOptions,
+      multiDraft: { rows, customer, showFeeBreakdown, showItemVat, customParagraphs },
     });
     localStorage.removeItem(DRAFT_KEY); // kaydedilen teklif taslak olarak geri dönmesin
     setSaved(true);
@@ -369,364 +334,38 @@ export function MultiProposalPage() {
           Her satır ayrı bir değerleme raporudur; tutarı kendi harçlarıyla otomatik hesaplanır.
           Satır ekleyin, silin, sıralayın — tek belgede profesyonel teklif hazırlayın.
         </p>
+        {editingId && (
+          <p className="field__hint" style={{ marginBottom: 8, fontWeight: 650 }}>
+            ✎ Kayıtlı bir teklif düzenleniyor. "Değişiklikleri Kaydet" o teklifi günceller.
+          </p>
+        )}
         <button type="button" className="btn btn--secondary btn--sm" onClick={resetProposal}>
           Teklifi Sıfırla
         </button>
       </div>
 
       {/* ---------------- Rapor satırları ---------------- */}
-      {rows.map((row, idx) => {
-        const comp = computations.get(row.id) ?? { subtotal: 0, warnings: [], result: null };
-        const group = tariff.groups.find((g) => g.id === row.groupId);
-        const districts = provinceOptions.find((p) => p.name === row.province)?.districts ?? [];
-        const bulkEligible = (row.groupId === 'G1' || row.groupId === 'G2') && row.count > 1;
-        const effAmount = rowEffectiveAmount(row, comp);
-        const locSummary = row.district ? `${row.province} / ${row.district}` : 'Konum seçilmedi';
-        return (
-          <div key={row.id} className="property-card">
-            {/* Başlık: numara + tutar her an görünür + sırala/sil */}
-            <div className="property-card__header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="property-card__badge">{idx + 1}</span>
-                <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                  {formatTL(effAmount)}{row.manualAmount !== null && ' ✎'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={() => moveRow(row.id, -1)} disabled={idx === 0} aria-label="Yukarı taşı">↑</button>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={() => moveRow(row.id, 1)} disabled={idx === rows.length - 1} aria-label="Aşağı taşı">↓</button>
-                {rows.length > 1 && (
-                  <button type="button" className="remove-btn" onClick={() => removeRow(row.id)}>Sil</button>
-                )}
-              </div>
-            </div>
-
-            {row.kind === 'saved' ? (
-              <p className="field__hint">
-                Kayıtlı hesaplamadan aktarıldı: <strong>{row.savedTitle}</strong>
-              </p>
-            ) : (
-              <>
-                {/* Eğitici tek satır: bu satır TEK rapordur */}
-                <p className="field__hint" style={{ marginBottom: 8 }}>
-                  Tek rapor · Tapu ×{Math.max(1, row.count)} · Diğer rapor harçları 1 kez
-                </p>
-
-                <div className="property-row-split">
-                  <div className="field">
-                    <label className="field__label">Ne değerleniyor?</label>
-                    <select
-                      className="select"
-                      value={row.serviceAlias ?? '__spk'}
-                      onChange={(e) => {
-                        if (e.target.value === '__spk') {
-                          updateRow(row.id, { serviceAlias: undefined });
-                          return;
-                        }
-                        const a = findAliasByName(serviceAliases, e.target.value);
-                        if (a) updateRow(row.id, { serviceAlias: a.name, groupId: a.groupId, subtypeId: a.subtypeId });
-                      }}
-                    >
-                      {serviceAliases.map((a) => (
-                        <option key={a.name} value={a.name}>{a.name}</option>
-                      ))}
-                      <option value="__spk">Diğer — SPK grubuyla seç…</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label className="field__label">Adet</label>
-                    <input
-                      className="input"
-                      type="number"
-                      inputMode="numeric"
-                      min={1}
-                      value={row.count === 0 ? '' : row.count}
-                      onChange={(e) => {
-                        // Silme anında alan boş kalabilmeli (0 = geçici boş durum); aksi hâlde
-                        // "1'i sil, 2 yaz" yapılamaz — kural onBlur'da uygulanır.
-                        const raw = e.target.value;
-                        const count = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0));
-                        const areas =
-                          row.areas && count >= 1
-                            ? Array.from({ length: count }, (_, j) => row.areas![j] ?? row.areas![row.areas!.length - 1] ?? 0)
-                            : row.areas;
-                        updateRow(row.id, { count, areas: count === 1 ? undefined : areas, area: count === 1 ? (row.areas?.[0] ?? row.area) : row.area });
-                      }}
-                      onBlur={() => {
-                        if (row.count < 1) updateRow(row.id, { count: 1 });
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {row.count > 1 && (
-                  <div className="warning-banner" style={{ alignItems: 'center' }}>
-                    <AlertIcon width={18} height={18} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1 }}>Adet {row.count}: tüm taşınmazlar TEK rapor sayılır (belediye, bilgi merkezi, TDUB, yol 1 kez). Her plaza ayrı görünsün istiyorsanız ayırın.</span>
-                    <button type="button" className="btn btn--gold btn--sm" style={{ flexShrink: 0 }} onClick={() => splitRow(row)}>Her taşınmazı ayrı satıra böl</button>
-                  </div>
-                )}
-
-                {!row.serviceAlias && (
-                  <div className="property-row-split">
-                    <div className="field">
-                      <label className="field__label">Grup</label>
-                      <select
-                        className="select"
-                        value={row.groupId}
-                        onChange={(e) => {
-                          const g = tariff.groups.find((x) => x.id === e.target.value);
-                          updateRow(row.id, { groupId: e.target.value, subtypeId: g?.subtypes[0]?.id ?? '' });
-                        }}
-                      >
-                        {tariff.groups.map((g) => (
-                          <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label className="field__label">Tür</label>
-                      <select className="select" value={row.subtypeId} onChange={(e) => updateRow(row.id, { subtypeId: e.target.value })}>
-                        {group?.subtypes.map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {row.count <= 1 ? (
-                  <div className="field">
-                    <label className="field__label">Alan (m²)</label>
-                    <input className="input" type="number" inputMode="decimal" min={0} value={row.area ?? ''} onChange={(e) => updateRow(row.id, { area: e.target.value ? Number(e.target.value) : undefined, areas: undefined })} />
-                  </div>
-                ) : (
-                  <div className="field">
-                    <label className="field__label">Taşınmaz Alanları (m²) — her taşınmazın kendi alanı</label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                      {Array.from({ length: row.count }, (_, i) => (
-                        <input
-                          key={i}
-                          className="input"
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          placeholder={`${i + 1}. m²`}
-                          value={(row.areas?.[i] ?? row.area) || ''}
-                          onChange={(e) => {
-                            const next = Array.from({ length: row.count }, (_, j) => row.areas?.[j] ?? row.area ?? 0);
-                            next[i] = e.target.value ? Number(e.target.value) : 0;
-                            updateRow(row.id, { areas: next, area: undefined });
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Konum: açık alanda — il/ilçe seçilince belediye harcı otomatik eklenir */}
-                <div className="property-row-split">
-                  <div className="field">
-                    <label className="field__label">İl</label>
-                    <select className="select" value={row.province} onChange={(e) => handleRowDistrictChange(row, e.target.value, '')}>
-                      <option value="">Seçiniz</option>
-                      {provinceOptions.map((p) => (
-                        <option key={p.name} value={p.name}>{p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label className="field__label">İlçe</label>
-                    <select className="select" value={row.district} disabled={!row.province} onChange={(e) => handleRowDistrictChange(row, row.province, e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {districts.map((d) => (
-                        <option key={d.name} value={d.name}>{d.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                {rows.length > 1 && row.district && (
-                  <button type="button" className="btn btn--secondary btn--sm" style={{ marginBottom: 10 }} onClick={() => applyLocationToAll(row)}>
-                    Bu il/ilçeyi tüm satırlara uygula
-                  </button>
-                )}
-                {(() => {
-                  const official = officialDistrictFee(row.province, row.district);
-                  if (typeof official === 'number') {
-                    const overridden = row.municipalityFeeOverride !== null && row.municipalityFeeOverride !== undefined;
-                    const shown = overridden ? row.municipalityFeeOverride! : official;
-                    return (
-                      <div className="field">
-                        <label className="field__label">Belediye Harcı (TL)</label>
-                        <input
-                          className="input"
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          value={shown === 0 ? '' : shown}
-                          placeholder="0"
-                          onChange={(e) => updateRow(row.id, { municipalityFeeOverride: e.target.value ? Number(e.target.value) : 0 })}
-                        />
-                        <span className="field__hint">
-                          {overridden ? (
-                            <>Elle değiştirildi (resmi veri: {formatTL(official)}). <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { municipalityFeeOverride: undefined })}>Resmi değere dön</button></>
-                          ) : (
-                            <>✓ Resmi veriden alındı. Zam/muafiyet durumunda üzerine yazabilirsiniz; 0 da geçerlidir.</>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="field">
-                      <label className="field__label">Belediye Harcı (TL){row.district ? ' — bu ilçe için resmi veri yok' : ' — elle girin (ilçe seçilirse otomatik gelir)'}</label>
-                      <input
-                        className="input"
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        value={row.municipalityFee || ''}
-                        onChange={(e) => updateRow(row.id, { municipalityFee: e.target.value ? Number(e.target.value) : 0 })}
-                      />
-                    </div>
-                  );
-                })()}
-
-
-                {bulkEligible && (
-                  <div className="checkbox-row">
-                    <div>
-                      <div className="checkbox-row__label">{row.groupId === 'G1' ? 'Aynı mahalle/köy sınırlarında' : 'Aynı parsel üzerinde'}</div>
-                      <div className="checkbox-row__value">SPK toplu değerleme: en büyüğü tam, diğerleri %{row.groupId === 'G1' ? 20 : 15}.</div>
-                    </div>
-                    <button type="button" className="switch" data-checked={row.bulkTogether} onClick={() => updateRow(row.id, { bulkTogether: !row.bulkTogether })} aria-label="Toplu değerleme">
-                      <span className="switch__thumb" />
-                    </button>
-                  </div>
-                )}
-
-                {comp.warnings.length > 0 && row.manualAmount === null && (
-                  <div className="warning-banner">
-                    <AlertIcon width={18} height={18} />
-                    <span>{comp.warnings[0]} Gerekirse alttaki "Satır Tutarı"ndan satır tutarını elle girin.</span>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* İkincil alanlar: katlanır — telefonda ana akışı kısa tutar */}
-            <Accordion title={`Konum ve Ücret Ayrıntıları — ${locSummary}`} defaultOpen={true}>
-              {row.kind === 'custom' && (
-                <>
-                  <div className="field">
-                    <label className="field__label">Bina / Proje Adı (isteğe bağlı)</label>
-                    <input className="input" placeholder="Örn: Dora Plaza" value={row.buildingName ?? ''} onChange={(e) => updateRow(row.id, { buildingName: e.target.value || undefined })} />
-                  </div>
-                  {comp.result && comp.parts && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div className="section-title" style={{ marginBottom: 6 }}>Ücret Kalemleri (ofis içi — her kalemi elle girebilirsiniz)</div>
-                      {([
-                        ['Baz Ücret (Asgari Hizmet Bedeli)', 'baseFeeOverride', comp.parts.base] as const,
-                        ['Yol / Ulaşım Ücreti', 'transportFeeOverride', comp.parts.transport] as const,
-                        ['Tapu Harcı', 'titleDeedFeeOverride', comp.parts.deed] as const,
-                        ['Gayrimenkul Bilgi Merkezi Payı', 'infoCenterFeeOverride', comp.parts.infoCenter] as const,
-                        ['TDUB Birlik Payı', 'unionFeeOverride', comp.parts.union] as const,
-                      ]).map(([label, key, amount]) => {
-                        const edited = row[key] !== null && row[key] !== undefined;
-                        return (
-                          <div key={key} className="field" style={{ marginBottom: 8 }}>
-                            <label className="field__label">{label} (TL)</label>
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                              <input
-                                className="input"
-                                type="number"
-                                inputMode="decimal"
-                                min={0}
-                                value={amount}
-                                onChange={(e) => updateRow(row.id, { [key]: e.target.value === '' ? 0 : Number(e.target.value), manualAmount: null, grossAmount: null })}
-                              />
-                              {edited && (
-                                <button type="button" className="remove-btn" style={{ padding: 0, whiteSpace: 'nowrap' }} onClick={() => updateRow(row.id, { [key]: null })}>Otomatik</button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <div className="result-row">
-                        <span className="result-row__label">Belediye Harcı</span>
-                        <span className="result-row__value">{formatTL(comp.parts.municipality)}</span>
-                      </div>
-                      <div className="result-row result-row--total" style={{ fontSize: 14 }}>
-                        <span className="result-row__label">Satır Toplam Maliyeti</span>
-                        <span className="result-row__value">{formatTL(comp.subtotal)}</span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="property-row-split">
-                    <div className="field">
-                      <label className="field__label">Mahalle</label>
-                      <input className="input" value={row.mahalle ?? ''} onChange={(e) => updateRow(row.id, { mahalle: e.target.value || undefined })} />
-                    </div>
-                    <div className="field">
-                      <label className="field__label">Ada / Parsel</label>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <input className="input" placeholder="Ada" value={row.ada ?? ''} onChange={(e) => updateRow(row.id, { ada: e.target.value || undefined })} />
-                        <input className="input" placeholder="Parsel" value={row.parsel ?? ''} onChange={(e) => updateRow(row.id, { parsel: e.target.value || undefined })} />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <div className="field">
-                <label className="field__label">Belgedeki Satır Adını Tamamen Değiştir (isteğe bağlı)</label>
-                <input className="input" value={row.label} placeholder={rowDocumentLabel(row, tariff, serviceAliases)} onChange={(e) => updateRow(row.id, { label: e.target.value })} />
-              </div>
-
-              <div className="field">
-                <label className="field__label">Satır Tutarı (Toplam Maliyet)</label>
-                <input
-                  className="input"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  value={effAmount}
-                  onChange={(e) => updateRow(row.id, { manualAmount: Number(e.target.value), grossAmount: null })}
-                />
-                <span className="field__hint">
-                  {row.manualAmount !== null ? (
-                    <>Elle girildi. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null, grossAmount: null })}>Otomatik hesaba dön ({formatTL(comp.subtotal)})</button></>
-                  ) : (
-                    'Harçlar dahil otomatik hesaplandı. Yuvarlamak veya değiştirmek için tutarı kendiniz yazın; hesaplama etkilenmez.'
-                  )}
-                </span>
-              </div>
-
-              <div className="field">
-                <label className="field__label">KDV Dahil Tutar (TL) — pazarlıkla netleşen rakamı buraya yazın</label>
-                <input
-                  className="input"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  value={money.grosses[idx] ?? ''}
-                  onChange={(e) => {
-                    const g = Number(e.target.value);
-                    updateRow(row.id, { grossAmount: g, manualAmount: Math.round((g / (1 + vatRatePct / 100)) * 100) / 100 });
-                  }}
-                />
-                <span className="field__hint">
-                  {row.grossAmount !== null && row.grossAmount !== undefined ? (
-                    <>KDV hariç tutar otomatik bulunur. Tüm satırlara KDV dahil tutar yazarsanız Genel Toplam bu tutarların tam toplamı olur, kuruş farkı kalmaz. <button type="button" className="remove-btn" style={{ padding: 0 }} onClick={() => updateRow(row.id, { manualAmount: null, grossAmount: null })}>Otomatik hesaba dön</button></>
-                  ) : (
-                    `Otomatik: KDV hariç tutar × ${(1 + vatRatePct / 100).toLocaleString('tr-TR')}. Yuvarlak bir KDV dahil rakam yazarsanız KDV hariç tutar ondan hesaplanır.`
-                  )}
-                </span>
-              </div>
-            </Accordion>
-          </div>
-        );
-      })}
+      {rows.map((row, idx) => (
+        <ProposalRowCard
+          key={row.id}
+          row={row}
+          idx={idx}
+          rowCount={rows.length}
+          comp={computations.get(row.id) ?? { subtotal: 0, warnings: [], result: null }}
+          gross={money.grosses[idx]}
+          vatRatePct={vatRatePct}
+          tariff={tariff}
+          serviceAliases={serviceAliases}
+          provinces={provinceOptions}
+          officialDistrictFee={officialDistrictFee}
+          updateRow={updateRow}
+          moveRow={moveRow}
+          removeRow={removeRow}
+          splitRow={splitRow}
+          applyLocationToAll={applyLocationToAll}
+          onDistrictChange={handleRowDistrictChange}
+        />
+      ))}
 
       {findCrossRowIssues(rows).map((issue) => (
         <div key={issue.rowIds.join('-')} className="warning-banner" style={{ alignItems: 'center' }}>
@@ -757,65 +396,7 @@ export function MultiProposalPage() {
 
       {pricing && (
         <>
-          {/* ---------------- Ofis içi özet tablo: her rapor tek satır ---------------- */}
-          <div className="card" style={{ marginTop: 14 }}>
-            <div className="section-title">Rapor Özeti (ofis içi — PDF'e yansımaz)</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(127,127,127,0.12)', textAlign: 'center' }}>
-                    {['Bina Adı', 'Mahalle / Ada / Parsel', 'Rapor Ücreti', 'Tapu', 'Belediye', 'Yol', 'Gayr. Bilgi + TDUB', 'Toplam', 'KDV Dahil'].map((h) => (
-                      <th key={h} style={{ padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', fontWeight: 700 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {breakdownRows.map((b, i) => {
-                    const cell: React.CSSProperties = { padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', textAlign: 'right', whiteSpace: 'nowrap' };
-                    const money = (v: number) => (b.detail ? fmt(v) : '—');
-                    return (
-                      <tr key={b.id}>
-                        <td style={{ ...cell, textAlign: 'left', whiteSpace: 'normal', fontWeight: 700, minWidth: 130 }}>{i + 1}. {b.name}</td>
-                        <td style={{ ...cell, textAlign: 'left', whiteSpace: 'normal' }}>{b.loc || '—'}</td>
-                        <td style={cell}>{money(b.base)}</td>
-                        <td style={cell}>{money(b.deed)}</td>
-                        <td style={cell}>{money(b.municipality)}</td>
-                        <td style={cell}>{money(b.transport)}</td>
-                        <td style={cell}>
-                          {money(b.infoCenter + b.union)}
-                          {b.detail && <div style={{ fontSize: 11, opacity: 0.65 }}>{fmt(b.infoCenter)} + {fmt(b.union)}</div>}
-                        </td>
-                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(b.total)}{b.total !== b.calc && ' ✎'}</td>
-                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(b.gross)}</td>
-                      </tr>
-                    );
-                  })}
-                  <tr style={{ background: 'rgba(127,127,127,0.12)', fontWeight: 700 }}>
-                    {(() => {
-                      const cell: React.CSSProperties = { padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', textAlign: 'right', whiteSpace: 'nowrap' };
-                      return (
-                        <>
-                          <td style={{ ...cell, textAlign: 'left' }} colSpan={2}>TOPLAM</td>
-                          <td style={cell}>{fmt(breakdownTotals.base)}</td>
-                          <td style={cell}>{fmt(breakdownTotals.deed)}</td>
-                          <td style={cell}>{fmt(breakdownTotals.municipality)}</td>
-                          <td style={cell}>{fmt(breakdownTotals.transport)}</td>
-                          <td style={cell}>{fmt(breakdownTotals.infoCenter + breakdownTotals.union)}</td>
-                          <td style={cell}>{fmt(breakdownTotals.total)}</td>
-                          <td style={cell}>{fmt(pricing.grandTotal)}</td>
-                        </>
-                      );
-                    })()}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            {breakdownTotals.total !== breakdownTotals.calc && (
-              <span className="field__hint" style={{ display: 'block', marginTop: 6 }}>
-                ✎ Elle girilen tutar var: hesaplanan toplam {fmt(breakdownTotals.calc)}, müşteriye giden {fmt(breakdownTotals.total)}.
-              </span>
-            )}
-          </div>
+          <ProposalSummaryTable rows={summaryRows} totals={summaryTotalsValue} />
 
           {/* ---------------- Müşteri ---------------- */}
           <div className="card" style={{ marginTop: 14 }}>
@@ -921,7 +502,7 @@ export function MultiProposalPage() {
             </div>
             <div className="btn-row" style={{ marginTop: 8 }}>
               <button className="btn btn--secondary btn--block" type="button" onClick={handleSave} disabled={saved}>
-                {saved ? 'Teklif Kaydedildi ✓' : 'Teklifi Kaydet'}
+                {saved ? 'Teklif Kaydedildi ✓' : editingId ? 'Değişiklikleri Kaydet' : 'Teklifi Kaydet'}
               </button>
             </div>
           </div>

@@ -26,9 +26,7 @@ import { EMPTY_CUSTOMER_INFO, type CustomerInfo } from '../types/profile';
 import { calculate } from '../engine/calculationEngine';
 import { db } from '../db/database';
 import { formatTL, uid } from '../utils/format';
-import { generateReportPdf, buildReportPdfBlob } from '../pdf/generateReportPdf';
-import { buildProposalPdfBlob } from '../proposal/generateProposalPdf';
-import { buildProposalDocxBlob } from '../proposal/generateProposalDocx';
+import { preloadDocs, generateReportPdfLazy, buildReportPdfBlobLazy, buildProposalPdfBlobLazy, buildProposalDocxBlobLazy } from '../proposal/lazyDocs';
 import {
   computeAsgariHizmetBedeli,
   computeProposalPricing,
@@ -88,6 +86,7 @@ function NewCalculationInner({ onReset }: { onReset: () => void }) {
   const [reportTitle, setReportTitle] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [pendingAction, setPendingAction] = useState<ProposalActionKind | null>(null);
+  useEffect(() => { if (pendingAction) preloadDocs(); }, [pendingAction]);
 
   const effectiveSettings: CalculationSettings | null = useMemo(() => {
     if (calcSettings) return calcSettings;
@@ -275,10 +274,10 @@ function NewCalculationInner({ onReset }: { onReset: () => void }) {
     if (!result) return;
     const title = reportTitle.trim() || `Hesaplama — ${new Date().toLocaleDateString('tr-TR')}`;
     if (mode === 'download') {
-      await generateReportPdf({ title, input: { properties, titleDeedCount, municipalityFee, otherFees: showOtherFees ? otherFees : [], settings: effectiveSettings! }, result, tariffYear: tariff!.tariffYear, company });
+      await generateReportPdfLazy({ title, input: { properties, titleDeedCount, municipalityFee, otherFees: showOtherFees ? otherFees : [], settings: effectiveSettings! }, result, tariffYear: tariff!.tariffYear, company });
       return;
     }
-    const { blob, fileName } = buildReportPdfBlob({ title, input: { properties, titleDeedCount, municipalityFee, otherFees: showOtherFees ? otherFees : [], settings: effectiveSettings! }, result, tariffYear: tariff!.tariffYear, company });
+    const { blob, fileName } = await buildReportPdfBlobLazy({ title, input: { properties, titleDeedCount, municipalityFee, otherFees: showOtherFees ? otherFees : [], settings: effectiveSettings! }, result, tariffYear: tariff!.tariffYear, company });
     if (mode === 'whatsapp') {
       shareTextToWhatsApp(`${title} — Asgari Hizmet Bedeli: ${formatTL(asgariHizmetBedeli)}`);
       return;
@@ -289,11 +288,11 @@ function NewCalculationInner({ onReset }: { onReset: () => void }) {
   async function executeProposalAction(kind: ProposalActionKind) {
     if (!pricing) return;
     if (kind === 'pdf-download' || kind === 'pdf-share') {
-      const { blob, fileName } = buildProposalPdfBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
+      const { blob, fileName } = await buildProposalPdfBlobLazy({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
       if (kind === 'pdf-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/pdf');
     } else if (kind === 'docx-download' || kind === 'docx-share') {
-      const { blob, fileName } = await buildProposalDocxBlob({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
+      const { blob, fileName } = await buildProposalDocxBlobLazy({ customer, company, tariffYear: tariff!.tariffYear, pricing, propertyDetailLines: docPropertyDetailLines, contentOptions });
       if (kind === 'docx-download') downloadBlob(blob, fileName);
       else await shareOrDownloadFile(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     } else if (kind === 'whatsapp') {
