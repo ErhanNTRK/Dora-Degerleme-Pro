@@ -51,6 +51,8 @@ export interface ProposalRow {
   /** UI durumu: SPK grup/tür seçicisi açık mı (alias yerine gelişmiş seçim). Kalıcı değildir. */
   useSpkSelect?: boolean;
   /** SPK çapraz uyarıları ve belge satırı için konum bilgileri. */
+  /** İsteğe bağlı bina / proje adı (ör. "Dora Plaza"); belgede satır adının başına eklenir. */
+  buildingName?: string;
   mahalle?: string;
   ada?: string;
   parsel?: string;
@@ -132,6 +134,12 @@ export function computeRow(tariff: Tariff, row: ProposalRow, settings: Calculati
  * Müşteri SPK kategori adlarını değil gerçek hizmet adını görür.
  */
 export function rowDocumentLabel(row: ProposalRow, tariff: Tariff, aliases: ServiceAlias[] = []): string {
+  const base = rowDocumentLabelBase(row, tariff, aliases);
+  const b = row.buildingName?.trim();
+  return b && !row.label.trim() ? `${b} — ${base}` : base;
+}
+
+function rowDocumentLabelBase(row: ProposalRow, tariff: Tariff, aliases: ServiceAlias[]): string {
   if (row.label.trim()) return withLocation(row.label.trim(), row);
   if (row.kind === 'saved') return withLocation(row.savedTitle ?? 'Değerleme Raporu', row);
   const areaPart = rowAreaText(row);

@@ -167,10 +167,30 @@ export function MultiProposalPage() {
   }, [rows, tariff, computations, serviceAliases]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
-  /** Gerçek (yuvarlanmamış) toplam — yalnızca ofis içi. */
-  const realTotal = Math.round(
-    rows.reduce((s, r) => s + Math.max(0, rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null })), 0) * 100
-  ) / 100;
+  /** Ofis içi döküm tablosu: satır başına baz ücret + her harç kalemi ve sütun toplamları. */
+  const breakdownRows = rows.map((r) => {
+    const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
+    const res = c.result;
+    return {
+      id: r.id,
+      label: tariff ? rowDocumentLabel(r, tariff, serviceAliases) : '',
+      detail: !!res,
+      base: res ? res.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0) : 0,
+      transport: res?.transportFee ?? 0,
+      deed: res?.titleDeedFeeTotal ?? 0,
+      municipality: res?.municipalityFee ?? 0,
+      infoCenter: res?.infoCenterFee ?? 0,
+      union: res?.unionFee ?? 0,
+      calc: c.subtotal,
+      total: customerAmount(r),
+    };
+  });
+  const sumOf = (k: 'base' | 'transport' | 'deed' | 'municipality' | 'infoCenter' | 'union' | 'calc' | 'total') =>
+    Math.round(breakdownRows.reduce((t, b) => t + b[k], 0) * 100) / 100;
+  const breakdownTotals = {
+    base: sumOf('base'), transport: sumOf('transport'), deed: sumOf('deed'), municipality: sumOf('municipality'),
+    infoCenter: sumOf('infoCenter'), union: sumOf('union'), calc: sumOf('calc'), total: sumOf('total'),
+  };
   const vatRate = settings?.vatRatePercent ?? 20;
   const pricing = rows.length > 0 ? computeProposalPricing(totalAmount, vatRate) : null;
   const tariffYear = tariff?.tariffYear ?? new Date().getFullYear();
@@ -540,6 +560,10 @@ export function MultiProposalPage() {
             <Accordion title={`Konum ve Ücret Ayrıntıları — ${locSummary}`} defaultOpen={true}>
               {row.kind === 'custom' && (
                 <>
+                  <div className="field">
+                    <label className="field__label">Bina / Proje Adı (isteğe bağlı)</label>
+                    <input className="input" placeholder="Örn: Dora Plaza" value={row.buildingName ?? ''} onChange={(e) => updateRow(row.id, { buildingName: e.target.value || undefined })} />
+                  </div>
                   {comp.result && (
                     <div style={{ marginBottom: 12 }}>
                       <div className="section-title" style={{ marginBottom: 6 }}>Ücret Dökümü (ofis içi — belgeye yansımaz)</div>
@@ -592,7 +616,7 @@ export function MultiProposalPage() {
               )}
 
               <div className="field">
-                <label className="field__label">Satır Adı (belgede görünecek)</label>
+                <label className="field__label">Belgedeki Satır Adını Tamamen Değiştir (isteğe bağlı)</label>
                 <input className="input" value={row.label} placeholder={rowDocumentLabel(row, tariff, serviceAliases)} onChange={(e) => updateRow(row.id, { label: e.target.value })} />
               </div>
 
@@ -679,8 +703,8 @@ export function MultiProposalPage() {
             <div className="section-title">Teklif Tutarı</div>
             <div className="checkbox-row">
               <div>
-                <div className="checkbox-row__label">Ücretleri raporlara göre ayrı göster</div>
-                <div className="checkbox-row__value">Kapalıyken raporlar tutarsız listelenir; yalnızca tek satır Toplam Maliyet görünür.</div>
+                <div className="checkbox-row__label">PDF'te her raporun ücretini ayrı göster</div>
+                <div className="checkbox-row__value">Açık: her rapor tutarıyla alt alta listelenir, altında toplam yazar. Kapalı: raporlar tutarsız listelenir, yalnızca toplam görünür.</div>
               </div>
               <button type="button" className="switch" data-checked={showFeeBreakdown} onClick={() => setShowFeeBreakdown((v) => !v)} aria-label="Ücretleri ayrı göster">
                 <span className="switch__thumb" />
@@ -699,34 +723,52 @@ export function MultiProposalPage() {
               <span className="result-row__value">{formatTL(pricing.grandTotal)}</span>
             </div>
 
-            <Accordion title={`Ofis İçi Özet (müşteriye gitmez) — Gerçek: ${formatTL(realTotal)}`} defaultOpen={false}>
-              {rows.map((r, i) => {
-                const c = computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null };
-                const real = rowEffectiveAmount(r, c);
-                const shown = customerAmount(r);
-                return (
-                  <div key={r.id} style={{ marginBottom: 10 }}>
-                    <div className="result-row">
-                      <span className="result-row__label"><strong>{i + 1}.</strong> {rowDocumentLabel(r, tariff, serviceAliases)}</span>
-                    </div>
-                    {c.result && (
-                      <>
-                        <div className="result-row"><span className="result-row__label">Asgari Hizmet Bedeli</span><span className="result-row__value">{formatTL(c.result.propertyBreakdowns.reduce((t, b) => t + b.finalFee, 0))}</span></div>
-                        <div className="result-row"><span className="result-row__label">Tapu Harcı</span><span className="result-row__value">{formatTL(c.result.titleDeedFeeTotal)}</span></div>
-                        <div className="result-row"><span className="result-row__label">Belediye Harcı</span><span className="result-row__value">{formatTL(c.result.municipalityFee)}</span></div>
-                        <div className="result-row"><span className="result-row__label">Ulaşım</span><span className="result-row__value">{formatTL(c.result.transportFee)}</span></div>
-                        <div className="result-row"><span className="result-row__label">TDUB Birlik Payı</span><span className="result-row__value">{formatTL(c.result.unionFee)}</span></div>
-                        <div className="result-row"><span className="result-row__label">Bilgi Merkezi Payı</span><span className="result-row__value">{formatTL(c.result.infoCenterFee)}</span></div>
-                      </>
-                    )}
-                    <div className="result-row"><span className="result-row__label">Gerçek maliyet</span><span className="result-row__value">{formatTL(real)}</span></div>
-                    <div className="result-row"><span className="result-row__label">Müşteriye giden</span><span className="result-row__value">{formatTL(shown)}{shown !== real && ` (${shown > real ? '+' : ''}${formatTL(shown - real)})`}</span></div>
-                  </div>
-                );
-              })}
-              <div className="result-row result-row--total"><span className="result-row__label">Gerçek Toplam (KDV hariç)</span><span className="result-row__value">{formatTL(realTotal)}</span></div>
-              <div className="result-row result-row--total"><span className="result-row__label">Müşteriye Giden Toplam</span><span className="result-row__value">{formatTL(totalAmount)}</span></div>
-            </Accordion>
+            <div className="section-title" style={{ marginTop: 14 }}>Ücret Dökümü (ofis içi — PDF'e yansımaz)</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                <thead>
+                  <tr style={{ textAlign: 'right', borderBottom: '1px solid var(--border, #ccc)' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Rapor</th>
+                    <th style={{ padding: '4px 6px' }}>Baz Ücret</th>
+                    <th style={{ padding: '4px 6px' }}>Yol</th>
+                    <th style={{ padding: '4px 6px' }}>Tapu</th>
+                    <th style={{ padding: '4px 6px' }}>Belediye</th>
+                    <th style={{ padding: '4px 6px' }}>Gayr. Bilgi Merkezi</th>
+                    <th style={{ padding: '4px 6px' }}>TDUB</th>
+                    <th style={{ padding: '4px 6px' }}>Toplam</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdownRows.map((b, i) => (
+                    <tr key={b.id} style={{ textAlign: 'right', borderBottom: '1px solid var(--border, #eee)' }}>
+                      <td style={{ textAlign: 'left', padding: '4px 6px' }}><strong>{i + 1}.</strong> {b.label}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.base) : '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.transport) : '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.deed) : '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.municipality) : '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.infoCenter) : '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.union) : '—'}</td>
+                      <td style={{ padding: '4px 6px', fontWeight: 700 }}>{formatTL(b.total)}{b.total !== b.calc && ' ✎'}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--border, #999)' }}>
+                    <td style={{ textAlign: 'left', padding: '6px' }}>TOPLAM</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.base)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.transport)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.deed)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.municipality)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.infoCenter)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.union)}</td>
+                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {breakdownTotals.total !== breakdownTotals.calc && (
+              <span className="field__hint" style={{ display: 'block', marginTop: 6 }}>
+                ✎ Elle girilen tutar var: hesaplanan toplam {formatTL(breakdownTotals.calc)}, müşteriye giden {formatTL(breakdownTotals.total)}.
+              </span>
+            )}
 
             <Accordion title="Teklif Metni" defaultOpen={false}>
               <p className="field__hint" style={{ marginBottom: 10 }}>
