@@ -68,6 +68,24 @@ function readDraft(): ComposerDraft | null {
  * ücretleri mevzuata uygun otomatik hesaplanır. Satır tutarı istenirse elle ezilir;
  * bu yalnızca müşteri teklifini etkiler, motoru ve kayıtları etkilemez.
  */
+/** Tablo için kısa bina adı: bina adı (varsa) yoksa hizmet adı; alan eklenir. */
+function rowShortName(r: ProposalRow, tariff: NonNullable<ReturnType<typeof useTariff>['tariff']>): string {
+  const areas = (r.areas ?? []).filter((x) => x > 0);
+  const areaText = areas.length > 0 ? `${areas.reduce((t, x) => t + x, 0).toLocaleString('tr-TR')} m²` : r.area ? `${r.area.toLocaleString('tr-TR')} m²` : '';
+  const named = r.buildingName?.trim() || r.label.trim();
+  const base = named || rowDocumentLabel({ ...r, area: undefined, areas: undefined, mahalle: undefined, ada: undefined, parsel: undefined, province: '', district: '' }, tariff);
+  return [base, areaText].filter(Boolean).join(' · ');
+}
+
+/** "İlçe · Mahalle Ada/Parsel" — girilmeyenler atlanır. */
+function rowLocationText(r: ProposalRow): string {
+  const adaParsel = r.ada || r.parsel ? `${r.ada ?? ''}/${r.parsel ?? ''}` : '';
+  return [r.district, r.mahalle, adaParsel].filter(Boolean).join(' ');
+}
+
+/** Tablo için sade tutar: tam sayıysa kuruşsuz (58.485 TL), değilse 2 haneli (2.645,06 TL). */
+const fmt = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' TL';
+
 export function MultiProposalPage() {
   const { tariff, serviceAliases } = useTariff();
   const { settings } = useSettings();
@@ -175,6 +193,8 @@ export function MultiProposalPage() {
     return {
       id: r.id,
       label: tariff ? rowDocumentLabel(r, tariff, serviceAliases) : '',
+      name: tariff ? rowShortName(r, tariff) : '',
+      loc: rowLocationText(r),
       detail: !!pt,
       base: pt?.base ?? 0,
       transport: pt?.transport ?? 0,
@@ -702,6 +722,66 @@ export function MultiProposalPage() {
 
       {pricing && (
         <>
+          {/* ---------------- Ofis içi özet tablo: her rapor tek satır ---------------- */}
+          <div className="card" style={{ marginTop: 14 }}>
+            <div className="section-title">Rapor Özeti (ofis içi — PDF'e yansımaz)</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(127,127,127,0.12)', textAlign: 'center' }}>
+                    {['Bina Adı', 'Mahalle / Ada / Parsel', 'Rapor Ücreti', 'Tapu', 'Belediye', 'Yol', 'Gayr. Bilgi + TDUB', 'Toplam', 'KDV Dahil'].map((h) => (
+                      <th key={h} style={{ padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', fontWeight: 700 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdownRows.map((b, i) => {
+                    const cell: React.CSSProperties = { padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', textAlign: 'right', whiteSpace: 'nowrap' };
+                    const money = (v: number) => (b.detail ? fmt(v) : '—');
+                    return (
+                      <tr key={b.id}>
+                        <td style={{ ...cell, textAlign: 'left', whiteSpace: 'normal', fontWeight: 700, minWidth: 130 }}>{i + 1}. {b.name}</td>
+                        <td style={{ ...cell, textAlign: 'left', whiteSpace: 'normal' }}>{b.loc || '—'}</td>
+                        <td style={cell}>{money(b.base)}</td>
+                        <td style={cell}>{money(b.deed)}</td>
+                        <td style={cell}>{money(b.municipality)}</td>
+                        <td style={cell}>{money(b.transport)}</td>
+                        <td style={cell}>
+                          {money(b.infoCenter + b.union)}
+                          {b.detail && <div style={{ fontSize: 11, opacity: 0.65 }}>{fmt(b.infoCenter)} + {fmt(b.union)}</div>}
+                        </td>
+                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(b.total)}{b.total !== b.calc && ' ✎'}</td>
+                        <td style={{ ...cell, fontWeight: 700 }}>{fmt(Math.round(b.total * (1 + vatRate / 100) * 100) / 100)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ background: 'rgba(127,127,127,0.12)', fontWeight: 700 }}>
+                    {(() => {
+                      const cell: React.CSSProperties = { padding: '6px 4px', border: '1px solid rgba(127,127,127,0.35)', textAlign: 'right', whiteSpace: 'nowrap' };
+                      return (
+                        <>
+                          <td style={{ ...cell, textAlign: 'left' }} colSpan={2}>TOPLAM</td>
+                          <td style={cell}>{fmt(breakdownTotals.base)}</td>
+                          <td style={cell}>{fmt(breakdownTotals.deed)}</td>
+                          <td style={cell}>{fmt(breakdownTotals.municipality)}</td>
+                          <td style={cell}>{fmt(breakdownTotals.transport)}</td>
+                          <td style={cell}>{fmt(breakdownTotals.infoCenter + breakdownTotals.union)}</td>
+                          <td style={cell}>{fmt(breakdownTotals.total)}</td>
+                          <td style={cell}>{fmt(pricing.grandTotal)}</td>
+                        </>
+                      );
+                    })()}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {breakdownTotals.total !== breakdownTotals.calc && (
+              <span className="field__hint" style={{ display: 'block', marginTop: 6 }}>
+                ✎ Elle girilen tutar var: hesaplanan toplam {fmt(breakdownTotals.calc)}, müşteriye giden {fmt(breakdownTotals.total)}.
+              </span>
+            )}
+          </div>
+
           {/* ---------------- Müşteri ---------------- */}
           <div className="card" style={{ marginTop: 14 }}>
             <div className="section-title">Müşteri</div>
@@ -752,53 +832,6 @@ export function MultiProposalPage() {
               <span className="result-row__label">Genel Toplam</span>
               <span className="result-row__value">{formatTL(pricing.grandTotal)}</span>
             </div>
-
-            <div className="section-title" style={{ marginTop: 14 }}>Ücret Dökümü (ofis içi — PDF'e yansımaz)</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr style={{ textAlign: 'right', borderBottom: '1px solid var(--border, #ccc)' }}>
-                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Rapor</th>
-                    <th style={{ padding: '4px 6px' }}>Baz Ücret</th>
-                    <th style={{ padding: '4px 6px' }}>Yol</th>
-                    <th style={{ padding: '4px 6px' }}>Tapu</th>
-                    <th style={{ padding: '4px 6px' }}>Belediye</th>
-                    <th style={{ padding: '4px 6px' }}>Gayr. Bilgi Merkezi</th>
-                    <th style={{ padding: '4px 6px' }}>TDUB</th>
-                    <th style={{ padding: '4px 6px' }}>Toplam</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {breakdownRows.map((b, i) => (
-                    <tr key={b.id} style={{ textAlign: 'right', borderBottom: '1px solid var(--border, #eee)' }}>
-                      <td style={{ textAlign: 'left', padding: '4px 6px' }}><strong>{i + 1}.</strong> {b.label}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.base) : '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.transport) : '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.deed) : '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.municipality) : '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.infoCenter) : '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{b.detail ? formatTL(b.union) : '—'}</td>
-                      <td style={{ padding: '4px 6px', fontWeight: 700 }}>{formatTL(b.total)}{b.total !== b.calc && ' ✎'}</td>
-                    </tr>
-                  ))}
-                  <tr style={{ textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--border, #999)' }}>
-                    <td style={{ textAlign: 'left', padding: '6px' }}>TOPLAM</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.base)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.transport)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.deed)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.municipality)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.infoCenter)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.union)}</td>
-                    <td style={{ padding: '6px' }}>{formatTL(breakdownTotals.total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            {breakdownTotals.total !== breakdownTotals.calc && (
-              <span className="field__hint" style={{ display: 'block', marginTop: 6 }}>
-                ✎ Elle girilen tutar var: hesaplanan toplam {formatTL(breakdownTotals.calc)}, müşteriye giden {formatTL(breakdownTotals.total)}.
-              </span>
-            )}
 
             <Accordion title="Teklif Metni" defaultOpen={false}>
               <p className="field__hint" style={{ marginBottom: 10 }}>
