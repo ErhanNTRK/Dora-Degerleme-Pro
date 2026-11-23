@@ -106,6 +106,9 @@ export async function buildProposalDocxBlob({ customer, company, tariffYear, pri
           children: [
             new TextRun({ text: `${i + 1}.  ${item.label}`, size: 20 }),
             new TextRun({ text: `\t${formatTL(item.amount)}`, bold: true, size: 20 }),
+            ...(item.grossAmount !== undefined
+              ? [new TextRun({ text: `\tKDV dahil: ${formatTL(item.grossAmount)}`, size: 17, color: '64748B', break: 1 })]
+              : []),
           ],
         })
       );

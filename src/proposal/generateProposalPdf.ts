@@ -163,7 +163,17 @@ function renderProposalPdf({ customer, company, tariffYear, pricing, propertyDet
       doc.text(labelWrapped, margin + 2, y);
       doc.setFont('Roboto', 'bold');
       doc.text(formatTL(item.amount), margin + bodyWidth - 2, y, { align: 'right' });
-      y += labelWrapped.length * m.svcLine + 1.5;
+      let used = labelWrapped.length * m.svcLine;
+      if (item.grossAmount !== undefined) {
+        doc.setFont('Roboto', 'normal');
+        doc.setFontSize(8.4);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`KDV dahil: ${formatTL(item.grossAmount)}`, margin + bodyWidth - 2, y + 4.2, { align: 'right' });
+        doc.setFontSize(9.8);
+        doc.setTextColor(30, 41, 59);
+        used = Math.max(used, 4.8);
+      }
+      y += used + 1.5;
       doc.setDrawColor(226, 232, 240);
       doc.setLineWidth(0.2);
       doc.line(margin + 2, y, margin + bodyWidth - 2, y);

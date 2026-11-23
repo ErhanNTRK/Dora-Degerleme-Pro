@@ -65,7 +65,7 @@ export function ProposalPreviewModal({ company, customer, propertyDetailLines, p
                 {content.serviceFeeItems.map((it, i) => (
                   <div key={i} className="result-row">
                     <span className="result-row__label">{i + 1}. {it.label}</span>
-                    <span className="result-row__value">{formatTL(it.amount)}</span>
+                    <span className="result-row__value">{formatTL(it.amount)}{it.grossAmount !== undefined && <small style={{ display: 'block', fontWeight: 400, opacity: 0.7 }}>KDV dahil: {formatTL(it.grossAmount)}</small>}</span>
                   </div>
                 ))}
               </div>

@@ -59,7 +59,7 @@ export interface SavedProposal {
   /** Belgenin birebir yeniden üretilebilmesi için içerik seçenekleri snapshot'ı. */
   contentOptions?: {
     serviceLines?: string[];
-    serviceFeeItems?: Array<{ label: string; amount: number }>;
+    serviceFeeItems?: Array<{ label: string; amount: number; grossAmount?: number }>;
     customParagraphs?: string[] | null;
   };
 }

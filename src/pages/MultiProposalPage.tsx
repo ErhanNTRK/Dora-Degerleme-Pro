@@ -44,6 +44,7 @@ interface ComposerDraft {
   rows: ProposalRow[];
   customer: typeof EMPTY_CUSTOMER_INFO;
   showFeeBreakdown: boolean;
+  showItemVat?: boolean;
   customParagraphs: string[] | null;
 }
 
@@ -97,6 +98,8 @@ export function MultiProposalPage() {
   const [customer, setCustomer] = useState(draft?.customer ?? { ...EMPTY_CUSTOMER_INFO });
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(draft?.showFeeBreakdown ?? true);
   const [customParagraphs, setCustomParagraphs] = useState<string[] | null>(draft?.customParagraphs ?? null);
+  /** Her satır tutarının altında KDV dahil tutarı da yazılsın mı (PDF/Word/metin). */
+  const [showItemVat, setShowItemVat] = useState(draft?.showItemVat ?? true);
   const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
@@ -119,11 +122,11 @@ export function MultiProposalPage() {
   useEffect(() => {
     if (rows.length === 0) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, customParagraphs } satisfies ComposerDraft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ rows, customer, showFeeBreakdown, showItemVat, customParagraphs } satisfies ComposerDraft));
     } catch {
       /* depolama dolu ise sessiz geç — taslak kritik veri değildir */
     }
-  }, [rows, customer, showFeeBreakdown, customParagraphs]);
+  }, [rows, customer, showFeeBreakdown, showItemVat, customParagraphs]);
 
   // İlk satır tarife yüklenince eklenir (idempotent — StrictMode güvenli).
   useEffect(() => {
@@ -176,14 +179,16 @@ export function MultiProposalPage() {
     return rowEffectiveAmount(r, computations.get(r.id) ?? { subtotal: 0, warnings: [], result: null });
   }
 
+  const vatRatePct = settings?.vatRatePercent ?? 20;
   const feeItems: ServiceFeeItem[] = useMemo(() => {
     if (!tariff) return [];
     return rows.map((r) => ({
       label: rowDocumentLabel(r, tariff, serviceAliases),
       amount: customerAmount(r),
+      ...(showItemVat ? { grossAmount: Math.round(customerAmount(r) * (1 + vatRatePct / 100) * 100) / 100 } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, tariff, computations, serviceAliases]);
+  }, [rows, tariff, computations, serviceAliases, showItemVat]);
 
   const totalAmount = Math.round(feeItems.reduce((s, it) => s + Math.max(0, it.amount), 0) * 100) / 100;
   /** Ofis içi döküm tablosu: satır başına baz ücret + her harç kalemi ve sütun toplamları. */
@@ -817,6 +822,15 @@ export function MultiProposalPage() {
                 <div className="checkbox-row__value">Açık: her rapor tutarıyla alt alta listelenir, altında toplam yazar. Kapalı: raporlar tutarsız listelenir, yalnızca toplam görünür.</div>
               </div>
               <button type="button" className="switch" data-checked={showFeeBreakdown} onClick={() => setShowFeeBreakdown((v) => !v)} aria-label="Ücretleri ayrı göster">
+                <span className="switch__thumb" />
+              </button>
+            </div>
+            <div className="checkbox-row">
+              <div>
+                <div className="checkbox-row__label">Her tutarın altında KDV dahil değeri de yaz</div>
+                <div className="checkbox-row__value">PDF, Word ve metinde her raporun altında "KDV dahil: …" görünür. Yalnızca ayrı gösterim açıkken geçerlidir.</div>
+              </div>
+              <button type="button" className="switch" data-checked={showItemVat} onClick={() => setShowItemVat((v) => !v)} aria-label="KDV dahil değeri yaz">
                 <span className="switch__thumb" />
               </button>
             </div>

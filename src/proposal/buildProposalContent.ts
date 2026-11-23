@@ -69,6 +69,8 @@ export interface ServiceFeeItem {
   /** Müşteriye sunulan, rapor başına Toplam Maliyet. İÇ KALEM DEĞİLDİR — kullanıcının
    *  onayladığı/düzenlediği müşteri tutarıdır; tapu/belediye vb. döküm asla buraya girmez. */
   amount: number;
+  /** İsteğe bağlı: bu satırın KDV dahil tutarı; doluysa tutarın altında "KDV dahil" olarak yazılır. */
+  grossAmount?: number;
 }
 
 export interface ProposalContentOptions {
@@ -207,7 +209,7 @@ export function buildProposalContent(
 
   const serviceText =
     serviceFeeItems.length > 0
-      ? ['', 'Hizmet ve Ücret Dökümü:', ...serviceFeeItems.map((it, i) => `${i + 1}. ${it.label}: ${formatTL(it.amount)}`), '']
+      ? ['', 'Hizmet ve Ücret Dökümü:', ...serviceFeeItems.map((it, i) => `${i + 1}. ${it.label}: ${formatTL(it.amount)}${it.grossAmount !== undefined ? ` (KDV dahil: ${formatTL(it.grossAmount)})` : ''}`), '']
       : serviceLines.length > 0
         ? ['', 'Hizmet Kapsamı:', ...serviceLines.map((l, i) => `${i + 1}. ${l}`), '']
         : [];
